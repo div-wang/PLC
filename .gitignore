@@ -1,0 +1,13 @@
+
+._*
+*.swp
+.Trashes
+.Spotlight-V100
+Icon?
+Thumbs.db
+.DS_Store
+.DS_Store?
+.vscode/settings.json
+__PyCache__/
+build/
+dist/
