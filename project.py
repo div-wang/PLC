@@ -56,7 +56,7 @@ class ProjectPage:
                     margin-bottom: 20px;
                     display: flex;
                     justify-content: flex-end;
-                    gap: 10px;
+                    gap: 20px;
                 }
                 .action-btn {
                     padding: 8px 16px;
@@ -72,6 +72,20 @@ class ProjectPage:
                 }
                 .btn-new:hover {
                     background-color: #73d13d;
+                }
+                .btn-import {
+                    background-color: #722ed1;
+                    color: white;
+                }
+                .btn-import:hover {
+                    background-color: #9254de;
+                }
+                .btn-export {
+                    background-color: #13c2c2;
+                    color: white;
+                }
+                .btn-export:hover {
+                    background-color: #36cfc9;
                 }
                 .btn-delete {
                     background-color: #ff4d4f;
@@ -185,6 +199,13 @@ class ProjectPage:
                 .item-btn-delete:hover {
                     background-color: #ff7875;
                 }
+                .item-btn-switch {
+                    background-color: #722ed1;
+                    color: white;
+                }
+                .item-btn-switch:hover {
+                    background-color: #9254de;
+                }
                 
                 /* 模态框样式 */
                 .modal {
@@ -270,7 +291,9 @@ class ProjectPage:
             <div class="action-bar">
                 <input type="text" id="searchInput" placeholder="搜索项目..." style="padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px; width: 200px;">
                 <div style="flex: 1;"></div>
-                <button class="action-btn btn-new" onclick="showAddModal()">新建</button>
+                <button class="action-btn btn-import" onclick="importProjects()">导入项目</button>
+                <button class="action-btn btn-export" onclick="exportProjects()">导出项目</button>
+                <button class="action-btn btn-new" onclick="showAddModal()">新建项目</button>
             </div>
             
             <div class="project-list" id="projectList">
@@ -306,6 +329,7 @@ class ProjectPage:
             <script>
                 let projects = [];
                 let selectedProjectId = null;
+                let fileInputEl = null;
                 
                 function showAddModal() {
                     document.getElementById('addModal').style.display = 'block';
@@ -331,14 +355,15 @@ class ProjectPage:
                     }
                     
                     projectList.innerHTML = projects.map((project, index) => `
-                        <div class="project-item" style="cursor: pointer; ${selectedProjectId === index ? 'background-color: #f0f8ff;' : ''}" onclick="selectProject(${index})">
+                        <div class="project-item" style="cursor: pointer; ${project.current || selectedProjectId === index ? 'background-color: #f0f8ff;' : ''}" onclick="selectProject(${index})">
                             <div class="project-info">
                                 <div class="project-name">${project.nameCN}</div>
                                 <div class="project-name-en">${project.nameEN}</div>
                             </div>
                             <div style="display: flex; align-items: center;">
-                                <span class="project-status status-pending">待开发</span>
+                                <span class="project-status ${project.current ? 'status-active' : 'status-pending'}">${project.current ? '当前' : '待开发'}</span>
                                 <div class="project-actions">
+                                    <button class="item-action-btn item-btn-switch" onclick="event.stopPropagation(); switchCurrent(${index})">切换</button>
                                     <button class="item-action-btn item-btn-edit" onclick="event.stopPropagation(); editProject(${index})">编辑</button>
                                     <button class="item-action-btn item-btn-delete" onclick="event.stopPropagation(); deleteProject(${index})">删除</button>
                                 </div>
@@ -348,6 +373,12 @@ class ProjectPage:
                 }
                 
                 function selectProject(index) {
+                    selectedProjectId = index;
+                    renderProjects();
+                }
+
+                function switchCurrent(index) {
+                    projects = projects.map((p, i) => ({...p, current: i === index}));
                     selectedProjectId = index;
                     renderProjects();
                 }
@@ -398,14 +429,15 @@ class ProjectPage:
                     projectList.innerHTML = filteredProjects.map((project, index) => {
                         const originalIndex = projects.indexOf(project);
                         return `
-                            <div class="project-item" style="cursor: pointer; ${selectedProjectId === originalIndex ? 'background-color: #f0f8ff;' : ''}" onclick="selectProject(${originalIndex})">
+                            <div class="project-item" style="cursor: pointer; ${projects[originalIndex].current || selectedProjectId === originalIndex ? 'background-color: #f0f8ff;' : ''}" onclick="selectProject(${originalIndex})">
                                 <div class="project-info">
                                     <div class="project-name">${project.nameCN}</div>
                                     <div class="project-name-en">${project.nameEN}</div>
                                 </div>
                                 <div style="display: flex; align-items: center;">
-                                    <span class="project-status status-pending">待开发</span>
+                                    <span class="project-status ${projects[originalIndex].current ? 'status-active' : 'status-pending'}">${projects[originalIndex].current ? '当前' : '待开发'}</span>
                                     <div class="project-actions">
+                                        <button class="item-action-btn item-btn-switch" onclick="event.stopPropagation(); switchCurrent(${originalIndex})">切换</button>
                                         <button class="item-action-btn item-btn-edit" onclick="event.stopPropagation(); editProject(${originalIndex})">编辑</button>
                                         <button class="item-action-btn item-btn-delete" onclick="event.stopPropagation(); deleteProject(${originalIndex})">删除</button>
                                     </div>
@@ -443,7 +475,8 @@ class ProjectPage:
                         nameEN: nameEN,
                         description: '',
                         status: 'pending',
-                        createdAt: new Date().toISOString()
+                        createdAt: new Date().toISOString(),
+                        current: projects.length === 0
                     });
                     
                     hideAddModal();
@@ -460,6 +493,64 @@ class ProjectPage:
                 
                 // 初始化页面
                 renderProjects();
+
+                function ensureFileInput() {
+                    if (!fileInputEl) {
+                        fileInputEl = document.createElement('input');
+                        fileInputEl.type = 'file';
+                        fileInputEl.accept = 'application/json';
+                        fileInputEl.style.display = 'none';
+                        document.body.appendChild(fileInputEl);
+                        fileInputEl.addEventListener('change', function() {
+                            if (fileInputEl.files && fileInputEl.files[0]) {
+                                const reader = new FileReader();
+                                reader.onload = function(e) {
+                                    try {
+                                        const data = JSON.parse(e.target.result);
+                                        if (Array.isArray(data)) {
+                                            projects = data.map((p, i) => ({
+                                                id: p.id || Date.now() + i,
+                                                nameCN: p.nameCN || '',
+                                                nameEN: p.nameEN || ('project_' + i),
+                                                description: p.description || '',
+                                                status: p.status || 'pending',
+                                                createdAt: p.createdAt || new Date().toISOString(),
+                                                current: !!p.current
+                                            }));
+                                            selectedProjectId = projects.findIndex(p => p.current);
+                                            renderProjects();
+                                            alert('导入成功');
+                                        } else {
+                                            alert('导入文件格式不正确，应为项目数组');
+                                        }
+                                    } catch (err) {
+                                        alert('导入失败：' + err.message);
+                                    }
+                                };
+                                reader.readAsText(fileInputEl.files[0], 'utf-8');
+                            }
+                        });
+                    }
+                }
+
+                function importProjects() {
+                    ensureFileInput();
+                    fileInputEl.value = '';
+                    fileInputEl.click();
+                }
+
+                function exportProjects() {
+                    const dataStr = JSON.stringify(projects, null, 2);
+                    const blob = new Blob([dataStr], { type: 'application/json' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = 'projects.json';
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    URL.revokeObjectURL(url);
+                }
             </script>
         </body>
         </html>

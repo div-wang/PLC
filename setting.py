@@ -8,13 +8,18 @@
 
 import os
 from PyQt5.QtWebEngineWidgets import QWebEngineView
-from PyQt5.QtCore import QUrl
+from PyQt5.QtCore import QUrl, QSettings, QObject, pyqtSlot
+from PyQt5.QtWebChannel import QWebChannel
 
 class SettingPage:
     """设置页面类"""
     
     def __init__(self):
         self.page = QWebEngineView()
+        self.bridge = SettingsBridge()
+        self.channel = QWebChannel(self.page.page())
+        self.channel.registerObject('bridge', self.bridge)
+        self.page.page().setWebChannel(self.channel)
         self.generate_setting_page()
     
     def get_page(self):
@@ -24,12 +29,18 @@ class SettingPage:
     def generate_setting_page(self):
         """生成设置页面内容"""
         # 构建HTML页面
+        settings = QSettings("PLCApp", "PLC")
+        try:
+            refresh_ms = int(settings.value("refresh_interval_ms", 60000))
+        except Exception:
+            refresh_ms = 60000
         html_content = """
         <!DOCTYPE html>
         <html>
         <head>
             <meta charset="UTF-8">
             <title>系统设置</title>
+            <script src="qrc:///qtwebchannel/qwebchannel.js"></script>
             <style>
                 body {
                     font-family: Arial, sans-serif;
@@ -224,7 +235,7 @@ class SettingPage:
                             <div class="setting-desc">数据刷新间隔(100-10000)</div>
                         </div>
                         <div class="setting-control">
-                            <input type="number" value="1000" min="100" max="10000">
+                            <input id="refresh_ms" type="number" value="__REFRESH_MS__" min="100" max="100000">
                         </div>
                     </div>
                     
@@ -323,12 +334,27 @@ class SettingPage:
                     </div>
                 </div>
                 
-                <button class="save-btn">保存设置</button>
+                <button class="save-btn" id="saveSettingsBtn">保存设置</button>
                 <div style="clear: both;"></div>
             </div>
+            <script>
+            document.addEventListener('DOMContentLoaded', function(){
+                new QWebChannel(qt.webChannelTransport, function(channel){
+                    window.bridge = channel.objects.bridge;
+                    var saveBtn = document.getElementById('saveSettingsBtn');
+                    saveBtn.addEventListener('click', function(){
+                        var v = parseInt(document.getElementById('refresh_ms').value);
+                        if (isNaN(v) || v < 100) { v = 1000; }
+                        bridge.setRefreshIntervalMs(v);
+                        alert('设置已保存: 刷新间隔 ' + v + ' ms');
+                    });
+                });
+            });
+            </script>
         </body>
         </html>
         """
+        html_content = html_content.replace("__REFRESH_MS__", str(refresh_ms))
         
         # 保存HTML到临时文件
         setting_html_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ui", "setting_page.html")
@@ -337,3 +363,9 @@ class SettingPage:
         
         # 加载HTML到WebView
         self.page.load(QUrl.fromLocalFile(setting_html_path))
+
+class SettingsBridge(QObject):
+    @pyqtSlot(int)
+    def setRefreshIntervalMs(self, ms: int):
+        s = QSettings("PLCApp", "PLC")
+        s.setValue("refresh_interval_ms", int(ms))

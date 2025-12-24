@@ -4,6 +4,7 @@
         <head>
             <meta charset="UTF-8">
             <title>系统设置</title>
+            <script src="qrc:///qtwebchannel/qwebchannel.js"></script>
             <style>
                 body {
                     font-family: Arial, sans-serif;
@@ -198,7 +199,7 @@
                             <div class="setting-desc">数据刷新间隔(100-10000)</div>
                         </div>
                         <div class="setting-control">
-                            <input type="number" value="1000" min="100" max="10000">
+                            <input id="refresh_ms" type="number" value="6000" min="100" max="100000">
                         </div>
                     </div>
                     
@@ -297,9 +298,23 @@
                     </div>
                 </div>
                 
-                <button class="save-btn">保存设置</button>
+                <button class="save-btn" id="saveSettingsBtn">保存设置</button>
                 <div style="clear: both;"></div>
             </div>
+            <script>
+            document.addEventListener('DOMContentLoaded', function(){
+                new QWebChannel(qt.webChannelTransport, function(channel){
+                    window.bridge = channel.objects.bridge;
+                    var saveBtn = document.getElementById('saveSettingsBtn');
+                    saveBtn.addEventListener('click', function(){
+                        var v = parseInt(document.getElementById('refresh_ms').value);
+                        if (isNaN(v) || v < 100) { v = 1000; }
+                        bridge.setRefreshIntervalMs(v);
+                        alert('设置已保存: 刷新间隔 ' + v + ' ms');
+                    });
+                });
+            });
+            </script>
         </body>
         </html>
         

@@ -8,6 +8,8 @@
 
 import sys
 from PyQt5.QtWidgets import QApplication
+from PyQt5.QtCore import Qt
+from PyQt5.QtGui import QGuiApplication
 from ui.base_ui import BaseUI
 from home import HomePage
 from project import ProjectPage
@@ -15,6 +17,15 @@ from setting import SettingPage
 
 def main():
     """主函数"""
+    QApplication.setAttribute(Qt.AA_EnableHighDpiScaling, True)
+    QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps, True)
+    try:
+        QGuiApplication.setHighDpiScaleFactorRoundingPolicy(
+            Qt.HighDpiScaleFactorRoundingPolicy.PassThrough
+        )
+    except Exception:
+        pass
+
     app = QApplication(sys.argv)
     
     # 创建主窗口
