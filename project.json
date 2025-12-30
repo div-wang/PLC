@@ -1,0 +1,18 @@
+[
+    {
+        "name_cn": "项目2",
+        "name_en": "project1",
+        "is_active": true,
+        "plc_settings": {
+            "device_type": "S7",
+            "byte_order": "ABCD",
+            "heartbeat": 30,
+            "timeout": 10000,
+            "refresh_interval_ms": 60000,
+            "address": "192.168.1.10",
+            "port": 102,
+            "username": "",
+            "password": ""
+        }
+    }
+]

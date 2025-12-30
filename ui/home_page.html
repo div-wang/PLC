@@ -12,34 +12,23 @@
                     padding: 20px;
                     background-color: #f9f9f9;
                 }
-                .header {
-                    text-align: center;
-                    margin-bottom: 30px;
-                }
-                .header h1 {
-                    color: #333;
-                    margin-bottom: 10px;
-                }
-                .header p {
-                    color: #666;
-                }
                 .chart-container {
-                    display: grid;
-                    grid-template-columns: repeat(2, minmax(0, 1fr));
-                    gap: 20px;
-                    align-items: start;
+                    display: flex;
+                    flex-direction: column;
+                    gap: 30px;
                 }
                 .chart-box {
-                    margin-bottom: 0;
                     background-color: white;
                     border-radius: 5px;
                     box-shadow: 0 2px 5px rgba(0,0,0,0.1);
-                    padding: 15px;
+                    padding: 20px;
+                    width: 100%;
+                    box-sizing: border-box;
                 }
                 .chart-title {
                     font-size: 18px;
                     font-weight: bold;
-                    margin-bottom: 10px;
+                    margin-bottom: 20px;
                     color: #333;
                     text-align: center;
                 }
@@ -49,225 +38,141 @@
                     font-size: 12px;
                     margin-top: 10px;
                 }
+                .data-grid {
+                    display: grid;
+                    grid-template-columns: repeat(4, 1fr);
+                    gap: 20px;
+                    margin-bottom: 20px;
+                }
+                .data-card {
+                    background-color: #f0f2f5;
+                    border-radius: 8px;
+                    padding: 20px;
+                    text-align: center;
+                    transition: all 0.3s;
+                    cursor: pointer;
+                }
+                .data-card:hover {
+                    transform: translateY(-5px);
+                    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+                    background-color: #e6f7ff;
+                }
+                .data-label {
+                    font-size: 16px;
+                    color: #666;
+                    margin-bottom: 10px;
+                }
+                .data-value {
+                    font-size: 32px;
+                    font-weight: bold;
+                    color: #1890ff;
+                }
+                .data-unit {
+                    font-size: 16px;
+                    color: #999;
+                    font-weight: normal;
+                }
+                .modal {
+                    display: none;
+                    position: fixed;
+                    z-index: 2000;
+                    left: 0;
+                    top: 0;
+                    width: 100%;
+                    height: 100%;
+                    background-color: rgba(0,0,0,0.5);
+                }
+                .modal-content {
+                    background-color: white;
+                    margin: 10% auto;
+                    padding: 20px;
+                    border-radius: 8px;
+                    width: 600px;
+                    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+                }
+                .modal-header {
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
+                    margin-bottom: 10px;
+                }
+                .modal-title {
+                    font-size: 18px;
+                    font-weight: bold;
+                    color: #333;
+                }
+                .close-btn {
+                    border: none;
+                    background: #f0f0f0;
+                    border-radius: 4px;
+                    padding: 6px 10px;
+                    cursor: pointer;
+                }
+                .detail-grid {
+                    display: grid;
+                    grid-template-columns: 160px 1fr;
+                    gap: 10px;
+                    align-items: center;
+                }
+                .detail-label {
+                    color: #666;
+                    font-weight: 600;
+                }
+                .detail-value {
+                    color: #333;
+                }
+                table.modal-table {
+                    width: 100%;
+                    border-collapse: collapse;
+                    margin-top: 10px;
+                }
+                table.modal-table th, table.modal-table td {
+                    border: 1px solid #eee;
+                    padding: 8px;
+                    font-size: 13px;
+                    text-align: left;
+                }
+                table.modal-table th {
+                    background: #f7f7f7;
+                    color: #555;
+                }
             </style>
         </head>
         <body>
-            <div class="header">
-                <h1>PLC数据监控</h1>
-                <p>实时监控PLC关键指标</p>
-            </div>
             
             <div class="chart-container">
                 <div class="chart-box">
                     <div class="chart-title">总数据汇总</div>
                     
-    <div id="433f44e6112743eea3407d72894951cb" class="chart-container" style="width:100%; height:360px; "></div>
-    <script>
-        var chart_433f44e6112743eea3407d72894951cb = echarts.init(
-            document.getElementById('433f44e6112743eea3407d72894951cb'), 'light', {renderer: 'canvas', locale: 'ZH'});
-        var option_433f44e6112743eea3407d72894951cb = {
-    "animation": true,
-    "animationThreshold": 2000,
-    "animationDuration": 1000,
-    "animationEasing": "cubicOut",
-    "animationDelay": 0,
-    "animationDurationUpdate": 300,
-    "animationEasingUpdate": "cubicOut",
-    "animationDelayUpdate": 0,
-    "aria": {
-        "enabled": false
-    },
-    "series": [
-        {
-            "type": "bar",
-            "name": "\u6570\u503c",
-            "legendHoverLink": true,
-            "data": [
-                13,
-                13,
-                243,
-                44
-            ],
-            "realtimeSort": false,
-            "showBackground": false,
-            "stackStrategy": "samesign",
-            "cursor": "pointer",
-            "barMinHeight": 0,
-            "barCategoryGap": "40%",
-            "barGap": "30%",
-            "large": false,
-            "largeThreshold": 400,
-            "seriesLayoutBy": "column",
-            "datasetIndex": 0,
-            "clip": true,
-            "zlevel": 0,
-            "z": 2,
-            "label": {
-                "show": true,
-                "position": "top",
-                "margin": 8,
-                "fontSize": 14,
-                "valueAnimation": false
-            },
-            "rippleEffect": {
-                "show": true,
-                "brushType": "stroke",
-                "scale": 2.5,
-                "period": 4
-            }
-        }
-    ],
-    "legend": [
-        {
-            "data": [
-                "\u6570\u503c"
-            ],
-            "selected": {},
-            "show": false,
-            "padding": 5,
-            "itemGap": 10,
-            "itemWidth": 25,
-            "itemHeight": 14,
-            "backgroundColor": "transparent",
-            "borderColor": "#ccc",
-            "borderRadius": 0,
-            "pageButtonItemGap": 5,
-            "pageButtonPosition": "end",
-            "pageFormatter": "{current}/{total}",
-            "pageIconColor": "#2f4554",
-            "pageIconInactiveColor": "#aaa",
-            "pageIconSize": 15,
-            "animationDurationUpdate": 800,
-            "selector": false,
-            "selectorPosition": "auto",
-            "selectorItemGap": 7,
-            "selectorButtonGap": 10
-        }
-    ],
-    "tooltip": {
-        "show": true,
-        "trigger": "item",
-        "triggerOn": "mousemove|click",
-        "axisPointer": {
-            "type": "line"
-        },
-        "showContent": true,
-        "alwaysShowContent": false,
-        "showDelay": 0,
-        "hideDelay": 100,
-        "enterable": false,
-        "confine": false,
-        "appendToBody": false,
-        "transitionDuration": 0.4,
-        "textStyle": {
-            "fontSize": 14
-        },
-        "borderWidth": 0,
-        "padding": 5,
-        "order": "seriesAsc"
-    },
-    "xAxis": [
-        {
-            "show": true,
-            "scale": false,
-            "nameLocation": "end",
-            "nameGap": 15,
-            "axisLabel": {
-                "show": true,
-                "margin": 8,
-                "fontSize": 14,
-                "valueAnimation": false
-            },
-            "inverse": false,
-            "offset": 0,
-            "splitNumber": 5,
-            "minInterval": 0,
-            "splitLine": {
-                "show": true,
-                "lineStyle": {
-                    "show": true,
-                    "width": 1,
-                    "opacity": 1,
-                    "curveness": 0,
-                    "type": "solid"
-                }
-            },
-            "animation": true,
-            "animationThreshold": 2000,
-            "animationDuration": 1000,
-            "animationEasing": "cubicOut",
-            "animationDelay": 0,
-            "animationDurationUpdate": 300,
-            "animationEasingUpdate": "cubicOut",
-            "animationDelayUpdate": 0,
-            "data": [
-                "\u63a8\u8fdb\u884c\u7a0b(mm)",
-                "\u77ac\u65f6\u51fa\u571f\u91cf(t/h)",
-                "\u73af\u51fa\u571f\u91cf(t)",
-                "\u5f53\u524d\u72b6\u6001(%)"
-            ]
-        }
-    ],
-    "yAxis": [
-        {
-            "name": "\u6570\u503c",
-            "show": true,
-            "scale": false,
-            "nameLocation": "end",
-            "nameGap": 15,
-            "inverse": false,
-            "offset": 0,
-            "splitNumber": 5,
-            "minInterval": 0,
-            "splitLine": {
-                "show": true,
-                "lineStyle": {
-                    "show": true,
-                    "width": 1,
-                    "opacity": 1,
-                    "curveness": 0,
-                    "type": "solid"
-                }
-            },
-            "animation": true,
-            "animationThreshold": 2000,
-            "animationDuration": 1000,
-            "animationEasing": "cubicOut",
-            "animationDelay": 0,
-            "animationDurationUpdate": 300,
-            "animationEasingUpdate": "cubicOut",
-            "animationDelayUpdate": 0
-        }
-    ],
-    "title": [
-        {
-            "show": true,
-            "target": "blank",
-            "subtarget": "blank",
-            "padding": 5,
-            "itemGap": 10,
-            "textAlign": "auto",
-            "textVerticalAlign": "auto",
-            "triggerEvent": false
-        }
-    ]
-};
-        chart_433f44e6112743eea3407d72894951cb.setOption(option_433f44e6112743eea3407d72894951cb);
-            window.addEventListener('resize', function(){
-                chart_433f44e6112743eea3407d72894951cb.resize();
-            })
-    </script>
-
-                    <div class="update-time">最后更新时间: 2025-12-24 10:10:20</div>
+        <div class="data-grid">
+            <div class="data-card" data-key="推进行程">
+                <div class="data-label">推进行程</div>
+                <div class="data-value">190 <span class="data-unit">mm</span></div>
+            </div>
+            <div class="data-card" data-key="瞬时出土量">
+                <div class="data-label">瞬时出土量</div>
+                <div class="data-value">184 <span class="data-unit">t/h</span></div>
+            </div>
+            <div class="data-card" data-key="环出土量">
+                <div class="data-label">环出土量</div>
+                <div class="data-value">194 <span class="data-unit">t</span></div>
+            </div>
+            <div class="data-card" data-key="当前状态">
+                <div class="data-label">当前状态</div>
+                <div class="data-value">64 <span class="data-unit">%</span></div>
+            </div>
+        </div>
+        
+                    <div class="update-time">最后更新时间: 2025-12-30 08:51:45</div>
                 </div>
                 <div class="chart-box">
                     <div class="chart-title">环号实时出土数据</div>
                     
-    <div id="11cafdbd503e4118a0fe48abb81fa2a3" class="chart-container" style="width:100%; height:360px; "></div>
+    <div id="cb6ff85258f747da808cf4f1ecc77df7" class="chart-container" style="width:100%; height:360px; "></div>
     <script>
-        var chart_11cafdbd503e4118a0fe48abb81fa2a3 = echarts.init(
-            document.getElementById('11cafdbd503e4118a0fe48abb81fa2a3'), 'light', {renderer: 'canvas', locale: 'ZH'});
-        var option_11cafdbd503e4118a0fe48abb81fa2a3 = {
+        var chart_cb6ff85258f747da808cf4f1ecc77df7 = echarts.init(
+            document.getElementById('cb6ff85258f747da808cf4f1ecc77df7'), 'light', {renderer: 'canvas', locale: 'ZH'});
+        var option_cb6ff85258f747da808cf4f1ecc77df7 = {
     "animation": true,
     "animationThreshold": 2000,
     "animationDuration": 1000,
@@ -282,13 +187,30 @@
     "series": [
         {
             "type": "bar",
-            "name": "\u6570\u503c",
+            "name": "\u51fa\u571f\u91cf(t)",
+            "yAxisIndex": 0,
             "legendHoverLink": true,
             "data": [
-                152,
-                111,
-                81,
-                61
+                104,
+                141,
+                124,
+                92,
+                109,
+                126,
+                148,
+                132,
+                124,
+                146,
+                120,
+                114,
+                102,
+                130,
+                82,
+                82,
+                91,
+                100,
+                107,
+                131
             ],
             "realtimeSort": false,
             "showBackground": false,
@@ -306,26 +228,140 @@
             "z": 2,
             "label": {
                 "show": true,
-                "position": "top",
                 "margin": 8,
-                "fontSize": 14,
                 "valueAnimation": false
             },
-            "rippleEffect": {
-                "show": true,
-                "brushType": "stroke",
-                "scale": 2.5,
-                "period": 4
+            "itemStyle": {
+                "color": "#1890ff"
             }
+        },
+        {
+            "type": "line",
+            "name": "\u63a8\u8fdb\u884c\u7a0b(mm)",
+            "connectNulls": false,
+            "xAxisIndex": 0,
+            "yAxisIndex": 1,
+            "symbolSize": 4,
+            "showSymbol": true,
+            "smooth": false,
+            "clip": true,
+            "step": false,
+            "stackStrategy": "samesign",
+            "data": [
+                [
+                    "94",
+                    107
+                ],
+                [
+                    "95",
+                    200
+                ],
+                [
+                    "96",
+                    153
+                ],
+                [
+                    "97",
+                    154
+                ],
+                [
+                    "98",
+                    101
+                ],
+                [
+                    "99",
+                    194
+                ],
+                [
+                    "100",
+                    137
+                ],
+                [
+                    "101",
+                    103
+                ],
+                [
+                    "102",
+                    124
+                ],
+                [
+                    "103",
+                    127
+                ],
+                [
+                    "104",
+                    166
+                ],
+                [
+                    "105",
+                    118
+                ],
+                [
+                    "106",
+                    106
+                ],
+                [
+                    "107",
+                    150
+                ],
+                [
+                    "108",
+                    198
+                ],
+                [
+                    "109",
+                    114
+                ],
+                [
+                    "110",
+                    128
+                ],
+                [
+                    "111",
+                    193
+                ],
+                [
+                    "112",
+                    106
+                ],
+                [
+                    "113",
+                    148
+                ]
+            ],
+            "hoverAnimation": true,
+            "label": {
+                "show": false,
+                "margin": 8,
+                "valueAnimation": false
+            },
+            "logBase": 10,
+            "seriesLayoutBy": "column",
+            "lineStyle": {
+                "show": true,
+                "width": 2,
+                "opacity": 1,
+                "curveness": 0,
+                "type": "solid"
+            },
+            "areaStyle": {
+                "opacity": 0
+            },
+            "itemStyle": {
+                "color": "#d14a61"
+            },
+            "zlevel": 0,
+            "z": 0
         }
     ],
     "legend": [
         {
             "data": [
-                "\u6570\u503c"
+                "\u51fa\u571f\u91cf(t)",
+                "\u63a8\u8fdb\u884c\u7a0b(mm)"
             ],
             "selected": {},
-            "show": false,
+            "show": true,
             "padding": 5,
             "itemGap": 10,
             "itemWidth": 25,
@@ -348,10 +384,10 @@
     ],
     "tooltip": {
         "show": true,
-        "trigger": "item",
+        "trigger": "axis",
         "triggerOn": "mousemove|click",
         "axisPointer": {
-            "type": "line"
+            "type": "cross"
         },
         "showContent": true,
         "alwaysShowContent": false,
@@ -370,14 +406,15 @@
     },
     "xAxis": [
         {
+            "name": "\u73af\u53f7",
             "show": true,
             "scale": false,
-            "nameLocation": "end",
-            "nameGap": 15,
+            "nameLocation": "center",
+            "nameGap": 30,
             "axisLabel": {
                 "show": true,
                 "margin": 8,
-                "fontSize": 14,
+                "fontSize": 12,
                 "valueAnimation": false
             },
             "inverse": false,
@@ -403,23 +440,104 @@
             "animationEasingUpdate": "cubicOut",
             "animationDelayUpdate": 0,
             "data": [
-                "\u5b9e\u9645\u73af\u51fa\u571f\u91cf(t)",
-                "\u6807\u51c6\u73af\u51fa\u571f\u91cf(t)",
-                "\u9884\u4f30\u53c2\u7167\u91cf(t)",
-                "\u51c0\u63a8\u8fdb\u884c(mm)"
+                "94",
+                "95",
+                "96",
+                "97",
+                "98",
+                "99",
+                "100",
+                "101",
+                "102",
+                "103",
+                "104",
+                "105",
+                "106",
+                "107",
+                "108",
+                "109",
+                "110",
+                "111",
+                "112",
+                "113"
             ]
         }
     ],
     "yAxis": [
         {
-            "name": "\u6570\u503c",
+            "name": "\u51fa\u571f\u91cf(t)",
             "show": true,
             "scale": false,
             "nameLocation": "end",
             "nameGap": 15,
+            "axisLine": {
+                "show": true,
+                "onZero": true,
+                "onZeroAxisIndex": 0,
+                "lineStyle": {
+                    "show": true,
+                    "width": 1,
+                    "opacity": 1,
+                    "curveness": 0,
+                    "type": "solid",
+                    "color": "#1890ff"
+                }
+            },
             "inverse": false,
             "offset": 0,
             "splitNumber": 5,
+            "minInterval": 0,
+            "splitLine": {
+                "show": true,
+                "lineStyle": {
+                    "show": true,
+                    "width": 1,
+                    "opacity": 1,
+                    "curveness": 0,
+                    "type": "solid"
+                }
+            },
+            "animation": true,
+            "animationThreshold": 2000,
+            "animationDuration": 1000,
+            "animationEasing": "cubicOut",
+            "animationDelay": 0,
+            "animationDurationUpdate": 300,
+            "animationEasingUpdate": "cubicOut",
+            "animationDelayUpdate": 0
+        },
+        {
+            "type": "value",
+            "name": "\u63a8\u8fdb\u884c\u7a0b(mm)",
+            "show": true,
+            "scale": false,
+            "nameLocation": "end",
+            "nameGap": 15,
+            "axisLine": {
+                "show": true,
+                "onZero": true,
+                "onZeroAxisIndex": 0,
+                "lineStyle": {
+                    "show": true,
+                    "width": 1,
+                    "opacity": 1,
+                    "curveness": 0,
+                    "type": "solid",
+                    "color": "#d14a61"
+                }
+            },
+            "axisLabel": {
+                "show": true,
+                "margin": 8,
+                "formatter": "{value} mm",
+                "valueAnimation": false
+            },
+            "inverse": false,
+            "position": "right",
+            "offset": 0,
+            "splitNumber": 5,
+            "min": 0,
+            "max": 250,
             "minInterval": 0,
             "splitLine": {
                 "show": true,
@@ -454,15 +572,77 @@
         }
     ]
 };
-        chart_11cafdbd503e4118a0fe48abb81fa2a3.setOption(option_11cafdbd503e4118a0fe48abb81fa2a3);
+        chart_cb6ff85258f747da808cf4f1ecc77df7.setOption(option_cb6ff85258f747da808cf4f1ecc77df7);
             window.addEventListener('resize', function(){
-                chart_11cafdbd503e4118a0fe48abb81fa2a3.resize();
+                chart_cb6ff85258f747da808cf4f1ecc77df7.resize();
             })
     </script>
 
-                    <div class="update-time">最后更新时间: 2025-12-24 10:10:20</div>
+                    <div class="update-time">最后更新时间: 2025-12-30 08:51:45</div>
                 </div>
             </div>
+            
+            <div id="metricModal" class="modal">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <div class="modal-title" id="modalTitle">PLC数据详情</div>
+                        <button class="close-btn" id="modalClose">关闭</button>
+                    </div>
+                    <table class="modal-table">
+                        <thead>
+                            <tr>
+                                <th>名称</th>
+                                <th>数据地址</th>
+                                <th>数据类型</th>
+                                <th>计算公式</th>
+                                <th>公式输入值</th>
+                                <th>单位</th>
+                                <th>实时值</th>
+                                <th>数据时间</th>
+                            </tr>
+                        </thead>
+                        <tbody id="metricTBody"></tbody>
+                    </table>
+                </div>
+            </div>
+            
+            <script>
+            const METRICS_ROWS = [{"名称": "环号", "数据地址": "AA75FE76", "数据类型": "short", "计算公式": "none", "公式输入值": 8000, "单位": "", "实时值": 8112, "数据时间": "2025-12-30 08:51:45"}, {"名称": "刀盘转速", "数据地址": "AA75FE76", "数据类型": "float", "计算公式": "none", "公式输入值": 0, "单位": "", "实时值": 19.2, "数据时间": "2025-12-30 08:51:45"}, {"名称": "A组油缸行程", "数据地址": "AA75FE76", "数据类型": "float", "计算公式": "none", "公式输入值": 0, "单位": "mm", "实时值": 191, "数据时间": "2025-12-30 08:51:45"}, {"名称": "B组油缸行程", "数据地址": "AA75FE76", "数据类型": "float", "计算公式": "none", "公式输入值": 0, "单位": "mm", "实时值": 189, "数据时间": "2025-12-30 08:51:45"}, {"名称": "C组油缸行程", "数据地址": "AA75FE76", "数据类型": "float", "计算公式": "none", "公式输入值": 0, "单位": "mm", "实时值": 192, "数据时间": "2025-12-30 08:51:45"}, {"名称": "D组油缸行程", "数据地址": "AA75FE76", "数据类型": "float", "计算公式": "none", "公式输入值": 0, "单位": "mm", "实时值": 188, "数据时间": "2025-12-30 08:51:45"}, {"名称": "推进速度", "数据地址": "AA75FE76", "数据类型": "float", "计算公式": "none", "公式输入值": 0, "单位": "", "实时值": 3.17, "数据时间": "2025-12-30 08:51:45"}];
+            function populateTable() {
+                const tbody = document.getElementById('metricTBody');
+                tbody.innerHTML = '';
+                METRICS_ROWS.forEach(r => {
+                    const tr = document.createElement('tr');
+                    const cols = ['名称','数据地址','数据类型','计算公式','公式输入值','单位','实时值','数据时间'];
+                    cols.forEach(k => {
+                        const td = document.createElement('td');
+                        td.textContent = (r[k] !== undefined && r[k] !== null) ? String(r[k]) : '-';
+                        tr.appendChild(td);
+                    });
+                    tbody.appendChild(tr);
+                });
+            }
+            function showMetric() {
+                populateTable();
+                document.getElementById('metricModal').style.display = 'block';
+            }
+            function hideMetric() {
+                document.getElementById('metricModal').style.display = 'none';
+            }
+            document.addEventListener('DOMContentLoaded', function() {
+                document.querySelectorAll('.data-card').forEach(function(card) {
+                    card.addEventListener('click', function() {
+                        showMetric();
+                    });
+                });
+                document.getElementById('modalClose').addEventListener('click', hideMetric);
+                window.addEventListener('click', function(evt) {
+                    if (evt.target && evt.target.id === 'metricModal') {
+                        hideMetric();
+                    }
+                });
+            });
+            </script>
         </body>
         </html>
         

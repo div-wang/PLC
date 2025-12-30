@@ -12,17 +12,6 @@
                     padding: 20px;
                     background-color: #f9f9f9;
                 }
-                .header {
-                    text-align: center;
-                    margin-bottom: 30px;
-                }
-                .header h1 {
-                    color: #333;
-                    margin-bottom: 10px;
-                }
-                .header p {
-                    color: #666;
-                }
                 .settings-container {
                     background-color: white;
                     border-radius: 5px;
@@ -135,128 +124,22 @@
             </style>
         </head>
         <body>
-            <div class="header">
-                <h1>系统设置</h1>
-                <p>配置系统参数和首选项</p>
-            </div>
             
             <div class="settings-container">
-                <div class="setting-group">
-                    <div class="setting-group-title">PLC连接设置</div>
-                    
-                    <div class="setting-item">
-                        <div>
-                            <div class="setting-label">设备类型</div>
-                            <div class="setting-desc">PLC设备类型</div>
-                        </div>
-                        <div class="setting-control">
-                            <select>
-                                <option selected>S7</option>
-                                <option>sqllite</option>
-                                <option>MySQL</option>
-                            </select>
-                        </div>
-                    </div>
-                    
-                    <div class="setting-item">
-                        <div>
-                            <div class="setting-label">字节顺序</div>
-                            <div class="setting-desc">数据字节顺序</div>
-                        </div>
-                        <div class="setting-control">
-                            <select>
-                                <option selected>ABCD</option>
-                                <option>CDAB</option>
-                                <option>BADC</option>
-                                <option>DCBA</option>
-                            </select>
-                        </div>
-                    </div>
-                    
-                    <div class="setting-item">
-                        <div>
-                            <div class="setting-label">心跳周期</div>
-                            <div class="setting-desc">心跳周期(1-1000)</div>
-                        </div>
-                        <div class="setting-control">
-                            <input type="number" value="30" min="1" max="1000">
-                        </div>
-                    </div>
-                    
-                    <div class="setting-item">
-                        <div>
-                            <div class="setting-label">读写超时(毫秒)</div>
-                            <div class="setting-desc">读写超时时间(1000-30000)</div>
-                        </div>
-                        <div class="setting-control">
-                            <input type="number" value="10000" min="1000" max="30000">
-                        </div>
-                    </div>
-                    
-                    <div class="setting-item">
-                        <div>
-                            <div class="setting-label">刷新间隔(毫秒)</div>
-                            <div class="setting-desc">数据刷新间隔(100-10000)</div>
-                        </div>
-                        <div class="setting-control">
-                            <input id="refresh_ms" type="number" value="6000" min="100" max="100000">
-                        </div>
-                    </div>
-                    
-                    <div class="setting-item">
-                        <div>
-                            <div class="setting-label">地址</div>
-                            <div class="setting-desc">PLC连接地址(不可为空)</div>
-                        </div>
-                        <div class="setting-control">
-                            <input type="text" value="192.168.1.10">
-                        </div>
-                    </div>
-                    
-                    <div class="setting-item">
-                        <div>
-                            <div class="setting-label">端口号</div>
-                            <div class="setting-desc">PLC连接端口(不可为空)</div>
-                        </div>
-                        <div class="setting-control">
-                            <input type="number" value="102">
-                        </div>
-                    </div>
-                    
-                    <div class="setting-item">
-                        <div>
-                            <div class="setting-label">用户名</div>
-                            <div class="setting-desc">连接用户名(可为空)</div>
-                        </div>
-                        <div class="setting-control">
-                            <input type="text" value="">
-                        </div>
-                    </div>
-                    
-                    <div class="setting-item">
-                        <div>
-                            <div class="setting-label">密码</div>
-                            <div class="setting-desc">连接密码(可为空)</div>
-                        </div>
-                        <div class="setting-control">
-                            <input type="password" value="">
-                        </div>
-                    </div>
-                </div>
-                
                 <div class="setting-group">
                     <div class="setting-group-title">应用设置</div>
                     
                     <div class="setting-item">
+
                         <div>
                             <div class="setting-label">主题</div>
                             <div class="setting-desc">选择应用主题</div>
                         </div>
                         <div class="setting-control">
-                            <select>
-                                <option>浅色</option>
-                                <option>深色</option>
-                                <option>系统默认</option>
+                            <select id="themeSelect">
+                                <option value="浅色">浅色</option>
+                                <option value="深色">深色</option>
+                                <option value="系统默认">系统默认</option>
                             </select>
                         </div>
                     </div>
@@ -267,7 +150,7 @@
                             <div class="setting-desc">数据自动刷新间隔</div>
                         </div>
                         <div class="setting-control">
-                            <input type="text" value="5">
+                            <input type="number" id="refreshInterval" value="5">
                         </div>
                     </div>
                     
@@ -278,7 +161,7 @@
                         </div>
                         <div class="setting-control">
                             <label class="toggle-switch">
-                                <input type="checkbox" checked>
+                                <input type="checkbox" id="autoSaveLogs" >
                                 <span class="slider"></span>
                             </label>
                         </div>
@@ -291,7 +174,7 @@
                         </div>
                         <div class="setting-control">
                             <label class="toggle-switch">
-                                <input type="checkbox" checked>
+                                <input type="checkbox" id="enableNotifications" >
                                 <span class="slider"></span>
                             </label>
                         </div>
@@ -303,14 +186,21 @@
             </div>
             <script>
             document.addEventListener('DOMContentLoaded', function(){
+                // Set theme selection
+                var themeSelect = document.getElementById('themeSelect');
+                themeSelect.value = "浅色";
+
                 new QWebChannel(qt.webChannelTransport, function(channel){
                     window.bridge = channel.objects.bridge;
                     var saveBtn = document.getElementById('saveSettingsBtn');
                     saveBtn.addEventListener('click', function(){
-                        var v = parseInt(document.getElementById('refresh_ms').value);
-                        if (isNaN(v) || v < 100) { v = 1000; }
-                        bridge.setRefreshIntervalMs(v);
-                        alert('设置已保存: 刷新间隔 ' + v + ' ms');
+                        var theme = document.getElementById('themeSelect').value;
+                        var refreshInterval = parseInt(document.getElementById('refreshInterval').value);
+                        var autoSaveLogs = document.getElementById('autoSaveLogs').checked;
+                        var enableNotifications = document.getElementById('enableNotifications').checked;
+
+                        bridge.saveSettings(theme, refreshInterval, autoSaveLogs, enableNotifications);
+                        alert('设置已保存');
                     });
                 });
             });

@@ -13,6 +13,7 @@ from PyQt5.QtGui import QGuiApplication
 from ui.base_ui import BaseUI
 from home import HomePage
 from project import ProjectPage
+from plc_link import PLCLinkPage
 from setting import SettingPage
 
 def main():
@@ -34,11 +35,13 @@ def main():
     # 创建各页面
     home_page = HomePage()
     project_page = ProjectPage()
+    plc_link_page = PLCLinkPage()
     setting_page = SettingPage()
     
     # 添加页面到主窗口
     main_window.add_page(home_page.get_page(), "home")
     main_window.add_page(project_page.get_page(), "project")
+    main_window.add_page(plc_link_page.get_page(), "plc_link")
     main_window.add_page(setting_page.get_page(), "setting")
     
     # 显示主窗口

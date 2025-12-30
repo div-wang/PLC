@@ -7,6 +7,8 @@
 """
 
 import os
+import json
+import codecs
 from PyQt5.QtWebEngineWidgets import QWebEngineView
 from PyQt5.QtCore import QUrl, QSettings, QObject, pyqtSlot
 from PyQt5.QtWebChannel import QWebChannel
@@ -26,14 +28,30 @@ class SettingPage:
         """获取页面组件"""
         return self.page
     
+    def load_settings(self):
+        """从JSON文件加载设置"""
+        settings_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "setting.json")
+        default_settings = {
+            "theme": "浅色",
+            "refresh_interval": 5,
+            "auto_save_logs": True,
+            "enable_notifications": True
+        }
+        
+        if os.path.exists(settings_path):
+            try:
+                with open(settings_path, 'r', encoding='utf-8') as f:
+                    return {**default_settings, **json.load(f)}
+            except Exception as e:
+                print(f"Error loading settings: {e}")
+                return default_settings
+        return default_settings
+
     def generate_setting_page(self):
         """生成设置页面内容"""
+        settings = self.load_settings()
+        
         # 构建HTML页面
-        settings = QSettings("PLCApp", "PLC")
-        try:
-            refresh_ms = int(settings.value("refresh_interval_ms", 60000))
-        except Exception:
-            refresh_ms = 60000
         html_content = """
         <!DOCTYPE html>
         <html>
@@ -47,17 +65,6 @@ class SettingPage:
                     margin: 0;
                     padding: 20px;
                     background-color: #f9f9f9;
-                }
-                .header {
-                    text-align: center;
-                    margin-bottom: 30px;
-                }
-                .header h1 {
-                    color: #333;
-                    margin-bottom: 10px;
-                }
-                .header p {
-                    color: #666;
                 }
                 .settings-container {
                     background-color: white;
@@ -171,128 +178,22 @@ class SettingPage:
             </style>
         </head>
         <body>
-            <div class="header">
-                <h1>系统设置</h1>
-                <p>配置系统参数和首选项</p>
-            </div>
             
             <div class="settings-container">
-                <div class="setting-group">
-                    <div class="setting-group-title">PLC连接设置</div>
-                    
-                    <div class="setting-item">
-                        <div>
-                            <div class="setting-label">设备类型</div>
-                            <div class="setting-desc">PLC设备类型</div>
-                        </div>
-                        <div class="setting-control">
-                            <select>
-                                <option selected>S7</option>
-                                <option>sqllite</option>
-                                <option>MySQL</option>
-                            </select>
-                        </div>
-                    </div>
-                    
-                    <div class="setting-item">
-                        <div>
-                            <div class="setting-label">字节顺序</div>
-                            <div class="setting-desc">数据字节顺序</div>
-                        </div>
-                        <div class="setting-control">
-                            <select>
-                                <option selected>ABCD</option>
-                                <option>CDAB</option>
-                                <option>BADC</option>
-                                <option>DCBA</option>
-                            </select>
-                        </div>
-                    </div>
-                    
-                    <div class="setting-item">
-                        <div>
-                            <div class="setting-label">心跳周期</div>
-                            <div class="setting-desc">心跳周期(1-1000)</div>
-                        </div>
-                        <div class="setting-control">
-                            <input type="number" value="30" min="1" max="1000">
-                        </div>
-                    </div>
-                    
-                    <div class="setting-item">
-                        <div>
-                            <div class="setting-label">读写超时(毫秒)</div>
-                            <div class="setting-desc">读写超时时间(1000-30000)</div>
-                        </div>
-                        <div class="setting-control">
-                            <input type="number" value="10000" min="1000" max="30000">
-                        </div>
-                    </div>
-                    
-                    <div class="setting-item">
-                        <div>
-                            <div class="setting-label">刷新间隔(毫秒)</div>
-                            <div class="setting-desc">数据刷新间隔(100-10000)</div>
-                        </div>
-                        <div class="setting-control">
-                            <input id="refresh_ms" type="number" value="__REFRESH_MS__" min="100" max="100000">
-                        </div>
-                    </div>
-                    
-                    <div class="setting-item">
-                        <div>
-                            <div class="setting-label">地址</div>
-                            <div class="setting-desc">PLC连接地址(不可为空)</div>
-                        </div>
-                        <div class="setting-control">
-                            <input type="text" value="192.168.1.10">
-                        </div>
-                    </div>
-                    
-                    <div class="setting-item">
-                        <div>
-                            <div class="setting-label">端口号</div>
-                            <div class="setting-desc">PLC连接端口(不可为空)</div>
-                        </div>
-                        <div class="setting-control">
-                            <input type="number" value="102">
-                        </div>
-                    </div>
-                    
-                    <div class="setting-item">
-                        <div>
-                            <div class="setting-label">用户名</div>
-                            <div class="setting-desc">连接用户名(可为空)</div>
-                        </div>
-                        <div class="setting-control">
-                            <input type="text" value="">
-                        </div>
-                    </div>
-                    
-                    <div class="setting-item">
-                        <div>
-                            <div class="setting-label">密码</div>
-                            <div class="setting-desc">连接密码(可为空)</div>
-                        </div>
-                        <div class="setting-control">
-                            <input type="password" value="">
-                        </div>
-                    </div>
-                </div>
-                
                 <div class="setting-group">
                     <div class="setting-group-title">应用设置</div>
                     
                     <div class="setting-item">
+
                         <div>
                             <div class="setting-label">主题</div>
                             <div class="setting-desc">选择应用主题</div>
                         </div>
                         <div class="setting-control">
-                            <select>
-                                <option>浅色</option>
-                                <option>深色</option>
-                                <option>系统默认</option>
+                            <select id="themeSelect">
+                                <option value="浅色">浅色</option>
+                                <option value="深色">深色</option>
+                                <option value="系统默认">系统默认</option>
                             </select>
                         </div>
                     </div>
@@ -303,7 +204,7 @@ class SettingPage:
                             <div class="setting-desc">数据自动刷新间隔</div>
                         </div>
                         <div class="setting-control">
-                            <input type="text" value="5">
+                            <input type="number" id="refreshInterval" value="__REFRESH_INTERVAL__">
                         </div>
                     </div>
                     
@@ -314,7 +215,7 @@ class SettingPage:
                         </div>
                         <div class="setting-control">
                             <label class="toggle-switch">
-                                <input type="checkbox" checked>
+                                <input type="checkbox" id="autoSaveLogs" __AUTO_SAVE_LOGS__>
                                 <span class="slider"></span>
                             </label>
                         </div>
@@ -327,7 +228,7 @@ class SettingPage:
                         </div>
                         <div class="setting-control">
                             <label class="toggle-switch">
-                                <input type="checkbox" checked>
+                                <input type="checkbox" id="enableNotifications" __ENABLE_NOTIFICATIONS__>
                                 <span class="slider"></span>
                             </label>
                         </div>
@@ -339,14 +240,21 @@ class SettingPage:
             </div>
             <script>
             document.addEventListener('DOMContentLoaded', function(){
+                // Set theme selection
+                var themeSelect = document.getElementById('themeSelect');
+                themeSelect.value = "__THEME__";
+
                 new QWebChannel(qt.webChannelTransport, function(channel){
                     window.bridge = channel.objects.bridge;
                     var saveBtn = document.getElementById('saveSettingsBtn');
                     saveBtn.addEventListener('click', function(){
-                        var v = parseInt(document.getElementById('refresh_ms').value);
-                        if (isNaN(v) || v < 100) { v = 1000; }
-                        bridge.setRefreshIntervalMs(v);
-                        alert('设置已保存: 刷新间隔 ' + v + ' ms');
+                        var theme = document.getElementById('themeSelect').value;
+                        var refreshInterval = parseInt(document.getElementById('refreshInterval').value);
+                        var autoSaveLogs = document.getElementById('autoSaveLogs').checked;
+                        var enableNotifications = document.getElementById('enableNotifications').checked;
+
+                        bridge.saveSettings(theme, refreshInterval, autoSaveLogs, enableNotifications);
+                        alert('设置已保存');
                     });
                 });
             });
@@ -354,10 +262,16 @@ class SettingPage:
         </body>
         </html>
         """
-        html_content = html_content.replace("__REFRESH_MS__", str(refresh_ms))
         
+        # Inject values
+        html_content = html_content.replace("__THEME__", settings["theme"])
+        html_content = html_content.replace("__REFRESH_INTERVAL__", str(settings["refresh_interval"]))
+        html_content = html_content.replace("__AUTO_SAVE_LOGS__", "checked" if settings["auto_save_logs"] else "")
+        html_content = html_content.replace("__ENABLE_NOTIFICATIONS__", "checked" if settings["enable_notifications"] else "")
+
         # 保存HTML到临时文件
         setting_html_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ui", "setting_page.html")
+        os.makedirs(os.path.dirname(setting_html_path), exist_ok=True)
         with open(setting_html_path, "w", encoding="utf-8") as f:
             f.write(html_content)
         
@@ -365,7 +279,19 @@ class SettingPage:
         self.page.load(QUrl.fromLocalFile(setting_html_path))
 
 class SettingsBridge(QObject):
-    @pyqtSlot(int)
-    def setRefreshIntervalMs(self, ms: int):
-        s = QSettings("PLCApp", "PLC")
-        s.setValue("refresh_interval_ms", int(ms))
+    @pyqtSlot(str, int, bool, bool)
+    def saveSettings(self, theme, refresh_interval, auto_save_logs, enable_notifications):
+        """保存设置到JSON文件"""
+        settings = {
+            "theme": theme,
+            "refresh_interval": refresh_interval,
+            "auto_save_logs": auto_save_logs,
+            "enable_notifications": enable_notifications
+        }
+        
+        settings_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "setting.json")
+        try:
+            with open(settings_path, 'w', encoding='utf-8') as f:
+                json.dump(settings, f, indent=4, ensure_ascii=False)
+        except Exception as e:
+            print(f"Error saving settings: {e}")
