@@ -9,9 +9,11 @@
 import os
 import json
 from PyQt5.QtWebEngineWidgets import QWebEngineView
-from PyQt5.QtCore import QUrl, QObject, pyqtSlot
+from PyQt5.QtCore import QUrl, QObject, pyqtSlot, QStandardPaths
 from PyQt5.QtWebChannel import QWebChannel
 from PyQt5.QtWidgets import QFileDialog
+
+import app_storage
 
 class ProjectPage:
     """项目管理页面类"""
@@ -30,28 +32,27 @@ class ProjectPage:
     
     def load_projects(self):
         """从JSON文件加载项目列表"""
-        projects_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "project.json")
         default_projects = []
-        
-        if os.path.exists(projects_path):
-            try:
-                with open(projects_path, 'r', encoding='utf-8') as f:
-                    data = json.load(f)
-                    # Convert snake_case to camelCase for JS
-                    js_projects = []
-                    for p in data:
-                        js_p = {
-                            "nameCN": p.get("name_cn", ""),
-                            "nameEN": p.get("name_en", ""),
-                            "current": p.get("is_active", False),
-                            "plcSettings": p.get("plc_settings", {})
-                        }
-                        js_projects.append(js_p)
-                    return js_projects
-            except Exception as e:
-                print(f"Error loading projects: {e}")
-                return default_projects
-        return default_projects
+
+        data = app_storage.load_json("project.json", [])
+        if not isinstance(data, list):
+            return default_projects
+        try:
+            js_projects = []
+            for p in data:
+                if not isinstance(p, dict):
+                    continue
+                js_p = {
+                    "nameCN": p.get("name_cn", ""),
+                    "nameEN": p.get("name_en", ""),
+                    "current": p.get("is_active", False),
+                    "plcSettings": p.get("plc_settings", {}),
+                }
+                js_projects.append(js_p)
+            return js_projects
+        except Exception as e:
+            print(f"Error loading projects: {e}")
+            return default_projects
 
     def generate_project_page(self):
         """生成项目管理页面内容"""
@@ -717,8 +718,7 @@ class ProjectPage:
         html_content = html_content.replace("__PROJECTS__", json.dumps(js_projects, ensure_ascii=False))
         
         # 保存HTML到临时文件
-        html_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ui", "project_page.html")
-        os.makedirs(os.path.dirname(html_path), exist_ok=True)
+        html_path = os.path.join(app_storage.ui_cache_dir(), "project_page.html")
         
         with open(html_path, "w", encoding="utf-8") as f:
             f.write(html_content)
@@ -742,10 +742,8 @@ class ProjectBridge(QObject):
                     "plc_settings": p.get("plcSettings", {})
                 }
                 db_projects.append(db_p)
-            
-            projects_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "project.json")
-            with open(projects_path, 'w', encoding='utf-8') as f:
-                json.dump(db_projects, f, indent=4, ensure_ascii=False)
+
+            app_storage.save_json("project.json", db_projects)
         except Exception as e:
             print(f"Error saving projects: {e}")
     
@@ -754,7 +752,7 @@ class ProjectBridge(QObject):
         try:
             obj = json.loads(project_json)
             default_name = "project_" + (obj.get("name_en", "project")) + ".json"
-            base_dir = os.path.dirname(os.path.abspath(__file__))
+            base_dir = QStandardPaths.writableLocation(QStandardPaths.DocumentsLocation) or os.path.expanduser("~")
             default_path = os.path.join(base_dir, default_name)
             filename, _ = QFileDialog.getSaveFileName(None, "导出项目", default_path, "JSON Files (*.json)")
             if filename:

@@ -17,6 +17,8 @@ from pyecharts.charts import Bar, Line
 from pyecharts import options as opts
 from pyecharts.globals import ThemeType
 
+import app_storage
+
 class HomePage:
     """主页类，负责生成主页内容和图表"""
     
@@ -388,7 +390,7 @@ class HomePage:
         """
         
         # 保存HTML到临时文件
-        home_html_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ui", "home_page.html")
+        home_html_path = os.path.join(app_storage.ui_cache_dir(), "home_page.html")
         with open(home_html_path, "w", encoding="utf-8") as f:
             f.write(html_content)
         

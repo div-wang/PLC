@@ -13,6 +13,8 @@ from PyQt5.QtWebEngineWidgets import QWebEngineView
 from PyQt5.QtCore import QUrl, QSettings, QObject, pyqtSlot
 from PyQt5.QtWebChannel import QWebChannel
 
+import app_storage
+
 class SettingPage:
     """设置页面类"""
     
@@ -30,22 +32,14 @@ class SettingPage:
     
     def load_settings(self):
         """从JSON文件加载设置"""
-        settings_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "setting.json")
         default_settings = {
             "theme": "浅色",
             "refresh_interval": 5,
             "auto_save_logs": True,
             "enable_notifications": True
         }
-        
-        if os.path.exists(settings_path):
-            try:
-                with open(settings_path, 'r', encoding='utf-8') as f:
-                    return {**default_settings, **json.load(f)}
-            except Exception as e:
-                print(f"Error loading settings: {e}")
-                return default_settings
-        return default_settings
+
+        return app_storage.load_json("setting.json", default_settings)
 
     def generate_setting_page(self):
         """生成设置页面内容"""
@@ -270,8 +264,7 @@ class SettingPage:
         html_content = html_content.replace("__ENABLE_NOTIFICATIONS__", "checked" if settings["enable_notifications"] else "")
 
         # 保存HTML到临时文件
-        setting_html_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ui", "setting_page.html")
-        os.makedirs(os.path.dirname(setting_html_path), exist_ok=True)
+        setting_html_path = os.path.join(app_storage.ui_cache_dir(), "setting_page.html")
         with open(setting_html_path, "w", encoding="utf-8") as f:
             f.write(html_content)
         
@@ -288,10 +281,8 @@ class SettingsBridge(QObject):
             "auto_save_logs": auto_save_logs,
             "enable_notifications": enable_notifications
         }
-        
-        settings_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "setting.json")
+
         try:
-            with open(settings_path, 'w', encoding='utf-8') as f:
-                json.dump(settings, f, indent=4, ensure_ascii=False)
+            app_storage.save_json("setting.json", settings)
         except Exception as e:
             print(f"Error saving settings: {e}")
