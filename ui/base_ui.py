@@ -90,7 +90,7 @@ class BaseUI(QMainWindow):
         self.home_btn = QPushButton('主页')
         self.project_btn = QPushButton('项目管理')
         self.plc_link_btn = QPushButton('PLC链接')
-        self.jy500_btn = QPushButton('JY500B1C')
+        self.modbus_btn = QPushButton('Modbus')
         self.settings_btn = QPushButton('设置')
         
         # 设置按钮样式
@@ -114,7 +114,7 @@ class BaseUI(QMainWindow):
             }
         """
         
-        for btn in [self.home_btn, self.project_btn, self.plc_link_btn, self.jy500_btn, self.settings_btn]:
+        for btn in [self.home_btn, self.project_btn, self.plc_link_btn, self.modbus_btn, self.settings_btn]:
             btn.setStyleSheet(button_style)
             btn.setCheckable(True)
             btn.setCursor(Qt.PointingHandCursor)
@@ -123,14 +123,14 @@ class BaseUI(QMainWindow):
         self.home_btn.clicked.connect(self.show_home_page)
         self.project_btn.clicked.connect(self.show_project_page)
         self.plc_link_btn.clicked.connect(self.show_plc_link_page)
-        self.jy500_btn.clicked.connect(self.show_jy500_page)
+        self.modbus_btn.clicked.connect(self.show_modbus_page)
         self.settings_btn.clicked.connect(self.show_settings_page)
         
         # 添加按钮到布局
         self.left_layout.addWidget(self.home_btn)
         self.left_layout.addWidget(self.project_btn)
         self.left_layout.addWidget(self.plc_link_btn)
-        self.left_layout.addWidget(self.jy500_btn)
+        self.left_layout.addWidget(self.modbus_btn)
         self.left_layout.addWidget(self.settings_btn)
         self.left_layout.addStretch(1)  # 底部弹性空间
         
@@ -197,7 +197,7 @@ class BaseUI(QMainWindow):
     
     def update_btn_style(self, active_btn):
         """更新按钮样式"""
-        for btn in [self.home_btn, self.project_btn, self.plc_link_btn, self.jy500_btn, self.settings_btn]:
+        for btn in [self.home_btn, self.project_btn, self.plc_link_btn, self.modbus_btn, self.settings_btn]:
             if btn == active_btn:
                 btn.setChecked(True)
                 btn.setStyleSheet("""
@@ -244,18 +244,18 @@ class BaseUI(QMainWindow):
         self.middle_section.setCurrentIndex(2)
         self.page_title.setText("PLC连接")
         self.update_btn_style(self.plc_link_btn)
-
-    def show_jy500_page(self):
-        """显示JY500B1C页面"""
-        self.middle_section.setCurrentIndex(4)
-        self.page_title.setText("JY500B1C")
-        self.update_btn_style(self.jy500_btn)
     
     def show_settings_page(self):
         """显示设置页面"""
         self.middle_section.setCurrentIndex(3)
         self.page_title.setText("设置")
         self.update_btn_style(self.settings_btn)
+
+    def show_modbus_page(self):
+        """显示Modbus页面"""
+        self.middle_section.setCurrentIndex(4)
+        self.page_title.setText("Modbus")
+        self.update_btn_style(self.modbus_btn)
 
     def update_time(self):
         """更新时间显示"""

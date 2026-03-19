@@ -23,7 +23,7 @@ from home import HomePage
 from project import ProjectPage
 from plc_link import PLCLinkPage
 from setting import SettingPage
-from jy500 import JY500Page
+from modbus import ModbusPage
 
 def main():
     """主函数"""
@@ -48,14 +48,14 @@ def main():
     project_page = ProjectPage()
     plc_link_page = PLCLinkPage()
     setting_page = SettingPage()
-    jy500_page = JY500Page()
+    modbus_page = ModbusPage()
     
     # 添加页面到主窗口
     main_window.add_page(home_page.get_page(), "home")
     main_window.add_page(project_page.get_page(), "project")
     main_window.add_page(plc_link_page.get_page(), "plc_link")
     main_window.add_page(setting_page.get_page(), "setting")
-    main_window.add_page(jy500_page.get_page(), "jy500")
+    main_window.add_page(modbus_page.get_page(), "modbus")
     
     # 显示主窗口
     main_window.show()

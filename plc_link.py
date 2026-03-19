@@ -42,12 +42,6 @@ class PLCLinkPage:
             "port": 102,
             "rack": 0,
             "slot": 1,
-            "unit_id": 1,
-            "serial_port": "",
-            "baudrate": 9600,
-            "parity": "N",
-            "stopbits": 1,
-            "bytesize": 8,
             "username": "",
             "password": ""
         }
@@ -161,7 +155,6 @@ class PLCLinkPage:
                         <div class="setting-control">
                             <select id="device_type">
                                 <option value="S7">S7</option>
-                                <option value="JY500B1C">JY500B1C</option>
                                 <option value="sqllite">sqllite</option>
                                 <option value="MySQL">MySQL</option>
                             </select>
@@ -171,7 +164,7 @@ class PLCLinkPage:
                     <div class="setting-item">
                         <div>
                             <div class="setting-label">协议</div>
-                            <div class="setting-desc">JY500B1C：Modbus-RTU/Modbus-TCP</div>
+                            <div class="setting-desc">通讯协议</div>
                         </div>
                         <div class="setting-control">
                             <select id="protocol">
@@ -248,70 +241,6 @@ class PLCLinkPage:
 
                     <div class="setting-item">
                         <div>
-                            <div class="setting-label">站号</div>
-                            <div class="setting-desc">Modbus 站号(1-247)</div>
-                        </div>
-                        <div class="setting-control">
-                            <input id="unit_id" type="number" min="1" max="247">
-                        </div>
-                    </div>
-
-                    <div class="setting-item">
-                        <div>
-                            <div class="setting-label">串口</div>
-                            <div class="setting-desc">Modbus-RTU 串口，如 /dev/ttyUSB0</div>
-                        </div>
-                        <div class="setting-control">
-                            <input id="serial_port" type="text">
-                        </div>
-                    </div>
-
-                    <div class="setting-item">
-                        <div>
-                            <div class="setting-label">波特率</div>
-                            <div class="setting-desc">RS485 波特率，默认9600</div>
-                        </div>
-                        <div class="setting-control">
-                            <input id="baudrate" type="number">
-                        </div>
-                    </div>
-
-                    <div class="setting-item">
-                        <div>
-                            <div class="setting-label">数据位</div>
-                            <div class="setting-desc">默认8</div>
-                        </div>
-                        <div class="setting-control">
-                            <input id="bytesize" type="number" min="5" max="8">
-                        </div>
-                    </div>
-
-                    <div class="setting-item">
-                        <div>
-                            <div class="setting-label">校验位</div>
-                            <div class="setting-desc">N/E/O</div>
-                        </div>
-                        <div class="setting-control">
-                            <select id="parity">
-                                <option value="N">N</option>
-                                <option value="E">E</option>
-                                <option value="O">O</option>
-                            </select>
-                        </div>
-                    </div>
-
-                    <div class="setting-item">
-                        <div>
-                            <div class="setting-label">停止位</div>
-                            <div class="setting-desc">默认1</div>
-                        </div>
-                        <div class="setting-control">
-                            <input id="stopbits" type="number" min="1" max="2">
-                        </div>
-                    </div>
-
-                    <div class="setting-item">
-                        <div>
                             <div class="setting-label">机架号</div>
                             <div class="setting-desc">PLC机架号(Rack)</div>
                         </div>
@@ -368,12 +297,6 @@ class PLCLinkPage:
                 port: __PORT__,
                 rack: __RACK__,
                 slot: __SLOT__,
-                unit_id: __UNIT_ID__,
-                serial_port: "__SERIAL_PORT__",
-                baudrate: __BAUDRATE__,
-                parity: "__PARITY__",
-                stopbits: __STOPBITS__,
-                bytesize: __BYTESIZE__,
                 username: "__USERNAME__",
                 password: "__PASSWORD__"
             };
@@ -401,25 +324,6 @@ class PLCLinkPage:
                     port: 0,
                     rack: 0,
                     slot: 0,
-                    username: '',
-                    password: ''
-                },
-                'JY500B1C': {
-                    protocol: 'modbus_tcp',
-                    byte_order: 'ABCD',
-                    heartbeat: 30,
-                    timeout: 10000,
-                    refresh_ms: 1000,
-                    address: '192.168.1.101',
-                    port: 502,
-                    rack: 0,
-                    slot: 0,
-                    unit_id: 1,
-                    serial_port: '',
-                    baudrate: 9600,
-                    parity: 'N',
-                    stopbits: 1,
-                    bytesize: 8,
                     username: '',
                     password: ''
                 },
@@ -454,12 +358,6 @@ class PLCLinkPage:
                 document.getElementById('port').value = settings.port;
                 document.getElementById('rack').value = settings.rack;
                 document.getElementById('slot').value = settings.slot;
-                document.getElementById('unit_id').value = settings.unit_id;
-                document.getElementById('serial_port').value = settings.serial_port;
-                document.getElementById('baudrate').value = settings.baudrate;
-                document.getElementById('parity').value = settings.parity;
-                document.getElementById('stopbits').value = settings.stopbits;
-                document.getElementById('bytesize').value = settings.bytesize;
                 document.getElementById('username').value = settings.username;
                 document.getElementById('password').value = settings.password;
             }
@@ -480,12 +378,6 @@ class PLCLinkPage:
                 document.getElementById('port').value = defs.port;
                 document.getElementById('rack').value = defs.rack;
                 document.getElementById('slot').value = defs.slot;
-                if (defs.unit_id !== undefined) document.getElementById('unit_id').value = defs.unit_id;
-                if (defs.serial_port !== undefined) document.getElementById('serial_port').value = defs.serial_port;
-                if (defs.baudrate !== undefined) document.getElementById('baudrate').value = defs.baudrate;
-                if (defs.parity !== undefined) document.getElementById('parity').value = defs.parity;
-                if (defs.stopbits !== undefined) document.getElementById('stopbits').value = defs.stopbits;
-                if (defs.bytesize !== undefined) document.getElementById('bytesize').value = defs.bytesize;
                 document.getElementById('username').value = defs.username;
                 document.getElementById('password').value = defs.password;
             }
@@ -515,12 +407,6 @@ class PLCLinkPage:
                             port: parseInt(document.getElementById('port').value),
                             rack: parseInt(document.getElementById('rack').value),
                             slot: parseInt(document.getElementById('slot').value),
-                            unit_id: parseInt(document.getElementById('unit_id').value),
-                            serial_port: document.getElementById('serial_port').value,
-                            baudrate: parseInt(document.getElementById('baudrate').value),
-                            parity: document.getElementById('parity').value,
-                            stopbits: parseInt(document.getElementById('stopbits').value),
-                            bytesize: parseInt(document.getElementById('bytesize').value),
                             username: document.getElementById('username').value,
                             password: document.getElementById('password').value
                         };
@@ -546,12 +432,6 @@ class PLCLinkPage:
         html_content = html_content.replace("__PORT__", str(settings.get("port", 102)))
         html_content = html_content.replace("__RACK__", str(settings.get("rack", 0)))
         html_content = html_content.replace("__SLOT__", str(settings.get("slot", 1)))
-        html_content = html_content.replace("__UNIT_ID__", str(settings.get("unit_id", 1)))
-        html_content = html_content.replace("__SERIAL_PORT__", settings.get("serial_port", ""))
-        html_content = html_content.replace("__BAUDRATE__", str(settings.get("baudrate", 9600)))
-        html_content = html_content.replace("__PARITY__", settings.get("parity", "N"))
-        html_content = html_content.replace("__STOPBITS__", str(settings.get("stopbits", 1)))
-        html_content = html_content.replace("__BYTESIZE__", str(settings.get("bytesize", 8)))
         html_content = html_content.replace("__USERNAME__", settings.get("username", ""))
         html_content = html_content.replace("__PASSWORD__", settings.get("password", ""))
         
@@ -592,8 +472,6 @@ class PLCLinkBridge(QObject):
                 if p.get("is_active"):
                     p["plc_settings"] = {
                         "device_type": to_str(data.get("device_type"), "S7"),
-                        "protocol": to_str(data.get("protocol"), "modbus_tcp"),
-                        "byte_order": to_str(data.get("byte_order"), "ABCD"),
                         "heartbeat": to_int(data.get("heartbeat", 30), 30),
                         "timeout": to_int(data.get("timeout", 10000), 10000),
                         "refresh_interval_ms": to_int(data.get("refresh_ms", 60000), 60000),
@@ -601,12 +479,6 @@ class PLCLinkBridge(QObject):
                         "port": to_int(data.get("port", 0), 0),
                         "rack": to_int(data.get("rack", 0), 0),
                         "slot": to_int(data.get("slot", 0), 0),
-                        "unit_id": to_int(data.get("unit_id", 1), 1),
-                        "serial_port": to_str(data.get("serial_port", ""), ""),
-                        "baudrate": to_int(data.get("baudrate", 9600), 9600),
-                        "parity": to_str(data.get("parity", "N"), "N"),
-                        "stopbits": to_int(data.get("stopbits", 1), 1),
-                        "bytesize": to_int(data.get("bytesize", 8), 8),
                         "username": to_str(data.get("username", ""), ""),
                         "password": to_str(data.get("password", ""), "")
                     }
@@ -617,8 +489,6 @@ class PLCLinkBridge(QObject):
             if not updated and projects:
                 projects[0]["plc_settings"] = {
                     "device_type": to_str(data.get("device_type"), "S7"),
-                    "protocol": to_str(data.get("protocol"), "modbus_tcp"),
-                    "byte_order": to_str(data.get("byte_order"), "ABCD"),
                     "heartbeat": to_int(data.get("heartbeat", 30), 30),
                     "timeout": to_int(data.get("timeout", 10000), 10000),
                     "refresh_interval_ms": to_int(data.get("refresh_ms", 60000), 60000),
@@ -626,12 +496,6 @@ class PLCLinkBridge(QObject):
                     "port": to_int(data.get("port", 0), 0),
                     "rack": to_int(data.get("rack", 0), 0),
                     "slot": to_int(data.get("slot", 0), 0),
-                    "unit_id": to_int(data.get("unit_id", 1), 1),
-                    "serial_port": to_str(data.get("serial_port", ""), ""),
-                    "baudrate": to_int(data.get("baudrate", 9600), 9600),
-                    "parity": to_str(data.get("parity", "N"), "N"),
-                    "stopbits": to_int(data.get("stopbits", 1), 1),
-                    "bytesize": to_int(data.get("bytesize", 8), 8),
                     "username": to_str(data.get("username", ""), ""),
                     "password": to_str(data.get("password", ""), "")
                 }

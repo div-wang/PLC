@@ -92,7 +92,6 @@
                         <div class="setting-control">
                             <select id="device_type">
                                 <option value="S7">S7</option>
-                                <option value="JY500B1C">JY500B1C</option>
                                 <option value="sqllite">sqllite</option>
                                 <option value="MySQL">MySQL</option>
                             </select>
@@ -102,7 +101,7 @@
                     <div class="setting-item">
                         <div>
                             <div class="setting-label">协议</div>
-                            <div class="setting-desc">JY500B1C：Modbus-RTU/Modbus-TCP</div>
+                            <div class="setting-desc">Modbus-RTU/Modbus-TCP</div>
                         </div>
                         <div class="setting-control">
                             <select id="protocol">
@@ -332,25 +331,6 @@
                     port: 0,
                     rack: 0,
                     slot: 0,
-                    username: '',
-                    password: ''
-                },
-                'JY500B1C': {
-                    protocol: 'modbus_tcp',
-                    byte_order: 'ABCD',
-                    heartbeat: 30,
-                    timeout: 10000,
-                    refresh_ms: 1000,
-                    address: '192.168.1.101',
-                    port: 502,
-                    rack: 0,
-                    slot: 0,
-                    unit_id: 1,
-                    serial_port: '',
-                    baudrate: 9600,
-                    parity: 'N',
-                    stopbits: 1,
-                    bytesize: 8,
                     username: '',
                     password: ''
                 },
