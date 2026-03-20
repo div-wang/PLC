@@ -14,6 +14,62 @@ from PyQt5.QtWebChannel import QWebChannel
 
 import app_storage
 
+
+def _deep_merge(base, override):
+    if not isinstance(base, dict) or not isinstance(override, dict):
+        return override
+    out = dict(base)
+    for k, v in override.items():
+        if k in out and isinstance(out.get(k), dict) and isinstance(v, dict):
+            out[k] = _deep_merge(out.get(k), v)
+        else:
+            out[k] = v
+    return out
+
+
+def _load_setting_template() -> dict:
+    try:
+        path = app_storage.resource_file_path("setting.json")
+        if not os.path.exists(path):
+            return {}
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def _load_setting_root() -> dict:
+    template = _load_setting_template()
+    user = app_storage.load_json("setting.json", {})
+    if not isinstance(user, dict):
+        user = {}
+    merged = _deep_merge(template, user)
+
+    try:
+        if "plc_link" not in merged:
+            projects = app_storage.load_json("project.json", [])
+            if isinstance(projects, list):
+                active = None
+                for p in projects:
+                    if isinstance(p, dict) and p.get("is_active"):
+                        active = p
+                        break
+                if active is None and projects and isinstance(projects[0], dict):
+                    active = projects[0]
+                if isinstance(active, dict) and isinstance(active.get("plc_settings"), dict):
+                    merged["plc_link"] = dict(active.get("plc_settings") or {})
+    except Exception:
+        pass
+
+    if merged != user:
+        try:
+            app_storage.save_json("setting.json", merged)
+        except Exception:
+            pass
+    return merged
+
+
 class PLCLinkPage:
     """PLC连接页面类"""
     
@@ -31,30 +87,11 @@ class PLCLinkPage:
     
     def load_plc_settings(self):
         """从JSON文件加载当前项目的PLC设置"""
-        default_settings = {
-            "device_type": "S7",
-            "protocol": "modbus_tcp",
-            "byte_order": "ABCD",
-            "heartbeat": 30,
-            "timeout": 10000,
-            "refresh_interval_ms": 60000,
-            "address": "192.168.1.10",
-            "port": 102,
-            "rack": 0,
-            "slot": 1,
-            "username": "",
-            "password": ""
-        }
-
-        projects = app_storage.load_json("project.json", [])
-        if isinstance(projects, list):
-            for p in projects:
-                if isinstance(p, dict) and p.get("is_active"):
-                    return {**default_settings, **p.get("plc_settings", {})}
-            if projects and isinstance(projects[0], dict):
-                return {**default_settings, **projects[0].get("plc_settings", {})}
-
-        return default_settings
+        root = _load_setting_root()
+        plc = root.get("plc_link")
+        if isinstance(plc, dict):
+            return dict(plc)
+        return {}
     
     def generate_page(self):
         """生成PLC连接页面内容"""
@@ -462,47 +499,24 @@ class PLCLinkBridge(QObject):
             def to_str(v, d=""):
                 return d if v is None else str(v)
 
-            projects = app_storage.load_json("project.json", [])
-            if not isinstance(projects, list):
-                projects = []
-            
-            # Update active project settings
-            updated = False
-            for p in projects:
-                if p.get("is_active"):
-                    p["plc_settings"] = {
-                        "device_type": to_str(data.get("device_type"), "S7"),
-                        "heartbeat": to_int(data.get("heartbeat", 30), 30),
-                        "timeout": to_int(data.get("timeout", 10000), 10000),
-                        "refresh_interval_ms": to_int(data.get("refresh_ms", 60000), 60000),
-                        "address": to_str(data.get("address"), ""),
-                        "port": to_int(data.get("port", 0), 0),
-                        "rack": to_int(data.get("rack", 0), 0),
-                        "slot": to_int(data.get("slot", 0), 0),
-                        "username": to_str(data.get("username", ""), ""),
-                        "password": to_str(data.get("password", ""), "")
-                    }
-                    updated = True
-                    break
-            
-            # If no active project found but projects exist, update the first one
-            if not updated and projects:
-                projects[0]["plc_settings"] = {
-                    "device_type": to_str(data.get("device_type"), "S7"),
-                    "heartbeat": to_int(data.get("heartbeat", 30), 30),
-                    "timeout": to_int(data.get("timeout", 10000), 10000),
-                    "refresh_interval_ms": to_int(data.get("refresh_ms", 60000), 60000),
-                    "address": to_str(data.get("address"), ""),
-                    "port": to_int(data.get("port", 0), 0),
-                    "rack": to_int(data.get("rack", 0), 0),
-                    "slot": to_int(data.get("slot", 0), 0),
-                    "username": to_str(data.get("username", ""), ""),
-                    "password": to_str(data.get("password", ""), "")
-                }
-                updated = True
-                
-            if updated:
-                app_storage.save_json("project.json", projects)
+            root = _load_setting_root()
+            if not isinstance(root, dict):
+                root = {}
+            root["plc_link"] = {
+                "device_type": to_str(data.get("device_type"), "S7"),
+                "protocol": to_str(data.get("protocol"), "modbus_tcp"),
+                "byte_order": to_str(data.get("byte_order"), "ABCD"),
+                "heartbeat": to_int(data.get("heartbeat", 30), 30),
+                "timeout": to_int(data.get("timeout", 10000), 10000),
+                "refresh_interval_ms": to_int(data.get("refresh_ms", 60000), 60000),
+                "address": to_str(data.get("address"), ""),
+                "port": to_int(data.get("port", 0), 0),
+                "rack": to_int(data.get("rack", 0), 0),
+                "slot": to_int(data.get("slot", 0), 0),
+                "username": to_str(data.get("username", ""), ""),
+                "password": to_str(data.get("password", ""), ""),
+            }
+            app_storage.save_json("setting.json", root)
                     
         except Exception as e:
             print(f"Error saving PLC settings: {e}")

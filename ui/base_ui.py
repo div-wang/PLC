@@ -21,6 +21,13 @@ class BaseUI(QMainWindow):
     
     def __init__(self):
         super().__init__()
+        self._page_index = {}
+        self._auth = None
+        self._login_handler = None
+        self._user_role = ""
+        self._modbus_status_state = "connecting"
+        self._home_shown_handler = None
+        self._next_ring_handler = None
         self.initUI()
         
     def initUI(self):
@@ -158,6 +165,7 @@ class BaseUI(QMainWindow):
         info_layout.addWidget(self.ip_label)
         
         self.left_layout.addWidget(info_widget)
+        self.modbus_btn.setVisible(False)
 
     def create_right_content(self):
         """创建右侧内容区"""
@@ -176,6 +184,23 @@ class BaseUI(QMainWindow):
         self.page_title = QLabel("主页")
         self.page_title.setStyleSheet("font-size: 18px; font-weight: bold; color: #333;")
         header_layout.addWidget(self.page_title)
+        header_layout.addStretch(1)
+
+        self.modbus_status = QLabel("连接中")
+        self.modbus_status.setFixedHeight(28)
+        self.modbus_status.setStyleSheet("background: #f3f4f6; color: #6b7280; border-radius: 14px; padding: 0 12px;")
+        header_layout.addWidget(self.modbus_status)
+
+        self.next_ring_btn = QPushButton("下一环")
+        self.next_ring_btn.setCursor(Qt.PointingHandCursor)
+        self.next_ring_btn.setVisible(False)
+        self.next_ring_btn.setStyleSheet(
+            "QPushButton { background: #52c41a; color: white; border: none; border-radius: 14px; padding: 0 14px; height: 28px; }"
+            "QPushButton:hover { background: #73d13d; }"
+            "QPushButton:disabled { background: #b7eb8f; color: rgba(255,255,255,0.85); }"
+        )
+        self.next_ring_btn.clicked.connect(self._on_next_ring_clicked)
+        header_layout.addWidget(self.next_ring_btn)
         
         self.right_layout.addWidget(header)
         
@@ -190,10 +215,91 @@ class BaseUI(QMainWindow):
             page: 页面组件
             page_name: 页面名称，用于标识页面
         """
+        index = self.middle_section.count()
         self.middle_section.addWidget(page)
+        try:
+            self._page_index[str(page_name)] = int(index)
+        except Exception:
+            pass
         # 如果是第一个添加的页面，默认显示
         if self.middle_section.count() == 1:
+            self.middle_section.setCurrentIndex(0)
+
+    def set_auth(self, auth):
+        self._auth = auth
+
+    def set_user_role(self, role: str):
+        self._user_role = str(role or "").strip()
+        self.modbus_btn.setVisible(self._user_role == "admin")
+        if self._user_role != "admin" and self.modbus_btn.isChecked():
             self.show_home_page()
+
+    def set_home_shown_handler(self, handler):
+        self._home_shown_handler = handler
+
+    def set_next_ring_handler(self, handler):
+        self._next_ring_handler = handler
+
+    def _on_next_ring_clicked(self):
+        try:
+            if callable(self._next_ring_handler):
+                self._next_ring_handler()
+        except Exception:
+            pass
+
+    def modbus_status_state(self) -> str:
+        return str(self._modbus_status_state or "")
+
+    def set_modbus_status(self, status: str):
+        s = str(status or "")
+        self._modbus_status_state = s
+        if s == "connected":
+            self.modbus_status.setText("已连接")
+            self.modbus_status.setToolTip("")
+            self.modbus_status.setStyleSheet("background: #f6ffed; color: #389e0d; border-radius: 14px; padding: 0 12px;")
+            self.next_ring_btn.setEnabled(True)
+            return
+        if s == "failed":
+            self.modbus_status.setText("未连接")
+            self.modbus_status.setToolTip("连接超时，请联系技术及时处理。")
+            self.modbus_status.setStyleSheet("background: #fff1f0; color: #cf1322; border-radius: 14px; padding: 0 12px;")
+            self.next_ring_btn.setEnabled(False)
+            return
+        self.modbus_status.setText("连接中")
+        self.modbus_status.setToolTip("")
+        self.modbus_status.setStyleSheet("background: #f3f4f6; color: #6b7280; border-radius: 14px; padding: 0 12px;")
+        self.next_ring_btn.setEnabled(False)
+
+    def set_login_handler(self, handler):
+        self._login_handler = handler
+
+    def _is_logged_in(self) -> bool:
+        if self._auth is None:
+            return True
+        try:
+            return bool(getattr(self._auth, "user", None))
+        except Exception:
+            return False
+
+    def _show_page(self, page_name, title, active_btn=None, allow_when_logged_out=False):
+        name = str(page_name)
+        if not allow_when_logged_out and not self._is_logged_in():
+            try:
+                if callable(self._login_handler):
+                    ok = bool(self._login_handler())
+                    if not ok:
+                        return
+                else:
+                    return
+            except Exception:
+                return
+        idx = self._page_index.get(name)
+        if idx is None:
+            return
+        self.middle_section.setCurrentIndex(int(idx))
+        self.page_title.setText(str(title))
+        self.update_btn_style(active_btn)
+        self.next_ring_btn.setVisible(name == "home")
     
     def update_btn_style(self, active_btn):
         """更新按钮样式"""
@@ -229,33 +335,28 @@ class BaseUI(QMainWindow):
 
     def show_home_page(self):
         """显示主页"""
-        self.middle_section.setCurrentIndex(0)
-        self.page_title.setText("主页")
-        self.update_btn_style(self.home_btn)
+        self._show_page("home", "主页", self.home_btn)
+        try:
+            if callable(self._home_shown_handler):
+                self._home_shown_handler()
+        except Exception:
+            pass
     
     def show_project_page(self):
         """显示项目管理页面"""
-        self.middle_section.setCurrentIndex(1)
-        self.page_title.setText("项目管理")
-        self.update_btn_style(self.project_btn)
+        self._show_page("project", "项目管理", self.project_btn)
     
     def show_plc_link_page(self):
         """显示PLC连接页面"""
-        self.middle_section.setCurrentIndex(2)
-        self.page_title.setText("PLC连接")
-        self.update_btn_style(self.plc_link_btn)
+        self._show_page("plc_link", "PLC连接", self.plc_link_btn)
     
     def show_settings_page(self):
         """显示设置页面"""
-        self.middle_section.setCurrentIndex(3)
-        self.page_title.setText("设置")
-        self.update_btn_style(self.settings_btn)
+        self._show_page("setting", "设置", self.settings_btn)
 
     def show_modbus_page(self):
         """显示Modbus页面"""
-        self.middle_section.setCurrentIndex(4)
-        self.page_title.setText("Modbus")
-        self.update_btn_style(self.modbus_btn)
+        self._show_page("modbus", "Modbus", self.modbus_btn)
 
     def update_time(self):
         """更新时间显示"""

@@ -29,12 +29,15 @@ def clean_build_folders():
 
 def build_exe():
     """使用PyInstaller打包应用程序为Windows exe文件"""
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    os.chdir(base_dir)
+
     # 清理旧的构建文件
     clean_build_folders()
     
     # PyInstaller参数 - 针对Windows exe（需在Windows系统上运行）
     pyinstaller_args = [
-        'main.spec',
+        os.path.join(base_dir, 'main.spec'),
         '--distpath=dist',  # 指定输出目录
         '--workpath=build',  # 指定工作目录
         '--clean',  # 清理临时文件

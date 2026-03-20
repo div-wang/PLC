@@ -8,16 +8,17 @@
 
 import os
 import re
-import random
 import time
 from PyQt5.QtWebEngineWidgets import QWebEngineView
-from PyQt5.QtCore import QUrl, QTimer, QSettings
+from PyQt5.QtCore import QUrl, QTimer
 
 from pyecharts.charts import Bar, Line
 from pyecharts import options as opts
 from pyecharts.globals import ThemeType
+from pyecharts.commons.utils import JsCode
 
 import app_storage
+import db
 
 class HomePage:
     """主页类，负责生成主页内容和图表"""
@@ -25,21 +26,22 @@ class HomePage:
     def __init__(self):
         self.page = QWebEngineView()
         self.summary_data = {
-            "推进行程": 75,
-            "瞬时出土量": 42,
-            "环出土量": 128,
-            "当前状态": 60
+            "实时流量": None,
+            "实时载荷": None,
+            "实时速度": None,
+            "总重量": None,
+            "总重量单位": "t",
         }
-        # 模拟最近20环的出土量数据
         self.ring_data = {
-            "rings": [str(i) for i in range(1, 21)],
-            "values": [random.randint(80, 150) for _ in range(20)],
-            "stroke_values": [random.randint(100, 200) for _ in range(20)]
+            "rings": [],
+            "weights": [],
+            "travels": [],
         }
         self.refresh_interval_ms = self._load_refresh_interval()
         self.timer = QTimer()
         self.timer.timeout.connect(self.update_data)
         self.timer.start(self.refresh_interval_ms)
+        self.update_data()
         self.generate_home_page()
     
     def get_page(self):
@@ -58,24 +60,11 @@ class HomePage:
     def _build_metrics_table(self):
         now_str = time.strftime('%Y-%m-%d %H:%M:%S')
         mac8 = self._get_mac_prefix8()
-        try:
-            current_ring_label = int(self.ring_data["rings"][-1])
-        except Exception:
-            current_ring_label = 1
-        ring_base = 8000
-        ring_no = ring_base + current_ring_label - 1
-        stroke = int(self.summary_data.get("推进行程", 0))
-        # 模拟各油缸行程：在总行程基础上加减微小偏差
-        cyl_variants = [
-            ("A组油缸行程", max(0, stroke + 1)),
-            ("B组油缸行程", max(0, stroke - 1)),
-            ("C组油缸行程", max(0, stroke + 2)),
-            ("D组油缸行程", max(0, stroke - 2)),
-        ]
-        # 刀盘转速与推进速度简单计算（示意）
-        rpm = round(self.summary_data.get("当前状态", 0) * 0.3, 2)
-        refresh_ms = getattr(self, 'refresh_interval_ms', 60000)
-        speed = round(stroke / max(1, refresh_ms / 1000.0), 2)
+        flow = self.summary_data.get("实时流量")
+        load = self.summary_data.get("实时载荷")
+        speed = self.summary_data.get("实时速度")
+        total_weight = self.summary_data.get("总重量")
+        total_unit = str(self.summary_data.get("总重量单位") or "")
         rows = []
         def row(name, dtype, formula_inputs, unit, value):
             return {
@@ -88,26 +77,21 @@ class HomePage:
                 "实时值": value,
                 "数据时间": now_str
             }
-        rows.append(row("环号", "short", ring_base, "", ring_no))
-        rows.append(row("刀盘转速", "float", 0, "", rpm))
-        for nm, val in cyl_variants:
-            rows.append(row(nm, "float", 0, "mm", val))
-        rows.append(row("推进速度", "float", 0, "", speed))
+        rows.append(row("实时流量", "float", 0, "t/h", flow if flow is not None else "-"))
+        rows.append(row("实时载荷", "float", 0, "kg/m", load if load is not None else "-"))
+        rows.append(row("实时速度", "float", 0, "m/s", speed if speed is not None else "-"))
+        rows.append(row("总重量", "float", 0, total_unit, f"{float(total_weight):.3f}" if total_weight is not None else "-"))
         return rows
 
     def _load_refresh_interval(self):
+        root = app_storage.load_json("setting.json", {})
+        if not isinstance(root, dict):
+            root = {}
         try:
-            settings = QSettings("PLCApp", "PLC")
-            val = int(settings.value("refresh_interval_ms", 60000))
-            return max(1000, val)
+            sec = int(root.get("refresh_interval", 5))
         except Exception:
-            env_val = os.environ.get("PLC_REFRESH_MS")
-            try:
-                if env_val:
-                    return max(1000, int(env_val))
-            except Exception:
-                pass
-        return 60000
+            sec = 5
+        return max(1000, int(sec) * 1000)
 
     def set_refresh_interval(self, ms):
         self.refresh_interval_ms = max(1000, int(ms))
@@ -119,25 +103,56 @@ class HomePage:
         new_interval = self._load_refresh_interval()
         if new_interval != self.refresh_interval_ms:
             self.set_refresh_interval(new_interval)
-        if random.choice([True, False]):
-            self.summary_data["当前状态"] = max(0, min(100, self.summary_data["当前状态"] + random.randint(-5, 5)))
-        if random.choice([True, False]):
-            self.summary_data["推进行程"] = max(0, min(200, self.summary_data["推进行程"] + random.randint(-10, 10)))
-        if random.choice([True, False]):
-            self.summary_data["瞬时出土量"] = max(0, min(300, self.summary_data["瞬时出土量"] + random.randint(-15, 15)))
-        if random.choice([True, False]):
-            self.summary_data["环出土量"] = max(0, min(300, self.summary_data["环出土量"] + random.randint(-20, 20)))
+        state = app_storage.load_json("modbus_state.json", {})
+        if not isinstance(state, dict):
+            state = {}
 
-        # 更新环号数据（模拟推进）
-        if random.random() < 0.1:  # 10%概率推进一环
-            last_ring = int(self.ring_data["rings"][-1])
-            self.ring_data["rings"].pop(0)
-            self.ring_data["rings"].append(str(last_ring + 1))
-            self.ring_data["values"].pop(0)
-            self.ring_data["values"].append(random.randint(80, 150))
+        flow = state.get("flow")
+        load = state.get("load")
+        speed = state.get("speed")
+        total_weight = state.get("total_weight")
+        total_unit = str(state.get("total_weight_unit") or "t")
+
+        self.summary_data["实时流量"] = float(flow) if isinstance(flow, (int, float)) else None
+        self.summary_data["实时载荷"] = float(load) if isinstance(load, (int, float)) else None
+        self.summary_data["实时速度"] = float(speed) if isinstance(speed, (int, float)) else None
+        self.summary_data["总重量"] = float(total_weight) if isinstance(total_weight, (int, float)) else None
+        self.summary_data["总重量单位"] = total_unit
+
+        ring_db = app_storage.load_json("ring_records.json", {"records": []})
+        records = []
+        if isinstance(ring_db, dict) and isinstance(ring_db.get("records"), list):
+            records = [r for r in ring_db.get("records") if isinstance(r, dict)]
+        pid = self._active_project_id()
+        try:
+            last10 = db.recent_rings(pid, limit=10)
+        except Exception:
+            filtered = [r for r in records if str(r.get("project_id") or "") == pid]
+            filtered.sort(key=lambda x: int(x.get("ring_no") or 0))
+            last10 = filtered[-10:]
+        self.ring_data["rings"] = [str(int(r.get("ring_no") or 0)) for r in last10]
+        self.ring_data["weights"] = [float(r.get("weight") or 0.0) for r in last10]
+        self.ring_data["travels"] = [float(r.get("travel") or 0.0) for r in last10]
         
         # 重新生成页面
         self.generate_home_page()
+
+    def _active_project_id(self):
+        projects = app_storage.load_json("project.json", [])
+        if not isinstance(projects, list):
+            return "default"
+        active = None
+        for p in projects:
+            if isinstance(p, dict) and bool(p.get("is_active", False)):
+                active = p
+                break
+        if active is None and projects and isinstance(projects[0], dict):
+            active = projects[0]
+        if isinstance(active, dict):
+            pid = str(active.get("name_en") or active.get("name_cn") or "").strip()
+            if pid:
+                return pid
+        return "default"
     
     def generate_home_page(self):
         """生成主页内容"""
@@ -145,23 +160,32 @@ class HomePage:
         import json
         metrics_rows = self._build_metrics_table()
         metrics_json = json.dumps(metrics_rows, ensure_ascii=False)
+        flow = self.summary_data.get("实时流量")
+        load = self.summary_data.get("实时载荷")
+        speed = self.summary_data.get("实时速度")
+        total_weight = self.summary_data.get("总重量")
+        total_unit = str(self.summary_data.get("总重量单位") or "t")
+        flow_txt = "--" if flow is None else f"{float(flow):.2f}"
+        load_txt = "--" if load is None else f"{float(load):.2f}"
+        speed_txt = "--" if speed is None else f"{float(speed):.2f}"
+        total_txt = "--" if total_weight is None else f"{float(total_weight):.3f}"
         summary_cards = f"""
         <div class="data-grid">
-            <div class="data-card" data-key="推进行程">
-                <div class="data-label">推进行程</div>
-                <div class="data-value">{self.summary_data["推进行程"]} <span class="data-unit">mm</span></div>
+            <div class="data-card" data-key="实时流量">
+                <div class="data-label">实时流量</div>
+                <div class="data-value">{flow_txt} <span class="data-unit">t/h</span></div>
             </div>
-            <div class="data-card" data-key="瞬时出土量">
-                <div class="data-label">瞬时出土量</div>
-                <div class="data-value">{self.summary_data["瞬时出土量"]} <span class="data-unit">t/h</span></div>
+            <div class="data-card" data-key="实时载荷">
+                <div class="data-label">实时载荷</div>
+                <div class="data-value">{load_txt} <span class="data-unit">kg/m</span></div>
             </div>
-            <div class="data-card" data-key="环出土量">
-                <div class="data-label">环出土量</div>
-                <div class="data-value">{self.summary_data["环出土量"]} <span class="data-unit">t</span></div>
+            <div class="data-card" data-key="实时速度">
+                <div class="data-label">实时速度</div>
+                <div class="data-value">{speed_txt} <span class="data-unit">m/s</span></div>
             </div>
-            <div class="data-card" data-key="当前状态">
-                <div class="data-label">当前状态</div>
-                <div class="data-value">{self.summary_data["当前状态"]} <span class="data-unit">%</span></div>
+            <div class="data-card" data-key="总重量">
+                <div class="data-label">总重量</div>
+                <div class="data-value">{total_txt} <span class="data-unit">{total_unit}</span></div>
             </div>
         </div>
         """
@@ -399,35 +423,44 @@ class HomePage:
     
 
     def create_ring_chart(self):
-        labels = self.ring_data["rings"]
-        values_output = self.ring_data["values"]
-        values_stroke = self.ring_data["stroke_values"]
+        labels = list(self.ring_data.get("rings") or [])
+        weights = list(self.ring_data.get("weights") or [])
+        if not labels:
+            labels = ["-"]
+            weights = [0]
         
+        axis2 = JsCode(
+            "function (value) {"
+            "  if (value === null || value === undefined || value === '') { return ''; }"
+            "  return Number(value).toFixed(2);"
+            "}"
+        )
+        tip3 = JsCode(
+            "function (params) {"
+            "  if (!params || !params.length) { return ''; }"
+            "  var s = params[0].axisValueLabel + '<br/>';"
+            "  params.forEach(function(p){"
+            "    var v = p.data;"
+            "    if (v === null || v === undefined || v === '') { v = '-'; }"
+            "    else { v = Number(v).toFixed(3); }"
+            "    s += p.marker + p.seriesName + ': ' + v + '<br/>';"
+            "  });"
+            "  return s;"
+            "}"
+        )
+
         bar = (
             Bar(init_opts=opts.InitOpts(width="100%", height="360px", theme=ThemeType.LIGHT))
             .add_xaxis(labels)
             .add_yaxis(
-                "出土量(t)", 
-                values_output, 
+                "重量(t)", 
+                weights, 
                 category_gap="40%", 
                 yaxis_index=0,
                 itemstyle_opts=opts.ItemStyleOpts(color="#1890ff")
             )
-            .extend_axis(
-                yaxis=opts.AxisOpts(
-                    name="推进行程(mm)",
-                    type_="value",
-                    min_=0,
-                    max_=250,
-                    position="right",
-                    axisline_opts=opts.AxisLineOpts(
-                        linestyle_opts=opts.LineStyleOpts(color="#d14a61")
-                    ),
-                    axislabel_opts=opts.LabelOpts(formatter="{value} mm"),
-                )
-            )
             .set_global_opts(
-                tooltip_opts=opts.TooltipOpts(trigger="axis", axis_pointer_type="cross"),
+                tooltip_opts=opts.TooltipOpts(trigger="axis", axis_pointer_type="cross", formatter=tip3),
                 legend_opts=opts.LegendOpts(is_show=True),
                 xaxis_opts=opts.AxisOpts(
                     name="环号",
@@ -436,30 +469,16 @@ class HomePage:
                     axislabel_opts=opts.LabelOpts(font_size=12)
                 ),
                 yaxis_opts=opts.AxisOpts(
-                    name="出土量(t)",
+                    name="重量(t)",
                     name_location="end",
                     name_gap=15,
                     axisline_opts=opts.AxisLineOpts(
                         linestyle_opts=opts.LineStyleOpts(color="#1890ff")
-                    )
+                    ),
+                    axislabel_opts=opts.LabelOpts(formatter=axis2),
                 )
             )
         )
-        
-        line = (
-            Line()
-            .add_xaxis(labels)
-            .add_yaxis(
-                "推进行程(mm)", 
-                values_stroke, 
-                yaxis_index=1,
-                label_opts=opts.LabelOpts(is_show=False),
-                itemstyle_opts=opts.ItemStyleOpts(color="#d14a61"),
-                linestyle_opts=opts.LineStyleOpts(width=2)
-            )
-        )
-        
-        bar.overlap(line)
         return bar.render_embed()
 
     def _clean_embed(self, embed_html: str) -> str:

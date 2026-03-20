@@ -7,7 +7,10 @@ import shutil
 import sys
 from typing import Any, Dict, Optional
 
-from PyQt5.QtCore import QStandardPaths
+try:
+    from PyQt5.QtCore import QStandardPaths
+except Exception:
+    QStandardPaths = None
 
 
 def _safe_mkdir(p: str) -> str:
@@ -16,14 +19,24 @@ def _safe_mkdir(p: str) -> str:
 
 
 def app_data_dir() -> str:
-    base = QStandardPaths.writableLocation(QStandardPaths.AppDataLocation)
+    base = ""
+    try:
+        if QStandardPaths is not None:
+            base = QStandardPaths.writableLocation(QStandardPaths.AppDataLocation)
+    except Exception:
+        base = ""
     if not base:
         base = os.path.join(os.path.expanduser("~"), ".plc_monitor")
     return _safe_mkdir(base)
 
 
 def cache_dir() -> str:
-    base = QStandardPaths.writableLocation(QStandardPaths.CacheLocation)
+    base = ""
+    try:
+        if QStandardPaths is not None:
+            base = QStandardPaths.writableLocation(QStandardPaths.CacheLocation)
+    except Exception:
+        base = ""
     if not base:
         base = app_data_dir()
     return _safe_mkdir(base)
@@ -35,6 +48,40 @@ def ui_cache_dir() -> str:
 
 def user_file_path(filename: str) -> str:
     return os.path.join(app_data_dir(), filename)
+
+
+def app_root_dir() -> str:
+    try:
+        if getattr(sys, "frozen", False):
+            return os.path.dirname(sys.executable)
+        return os.path.dirname(os.path.abspath(__file__))
+    except Exception:
+        return os.getcwd()
+
+
+def logs_dir() -> str:
+    new_p = os.path.join(app_data_dir(), "logs")
+    if not os.path.exists(new_p):
+        try:
+            old_p = os.path.join(app_root_dir(), "logs")
+            if os.path.isdir(old_p):
+                os.makedirs(new_p, exist_ok=True)
+                for name in os.listdir(old_p):
+                    src = os.path.join(old_p, name)
+                    dst = os.path.join(new_p, name)
+                    if os.path.isfile(src) and not os.path.exists(dst):
+                        try:
+                            shutil.move(src, dst)
+                        except Exception:
+                            pass
+                try:
+                    if not os.listdir(old_p):
+                        os.rmdir(old_p)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+    return _safe_mkdir(new_p)
 
 
 def resource_file_path(filename: str) -> str:

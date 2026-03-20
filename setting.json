@@ -2,5 +2,46 @@
     "theme": "浅色",
     "refresh_interval": 5,
     "auto_save_logs": false,
-    "enable_notifications": false
+    "enable_notifications": false,
+    "users": [
+        {
+            "username": "admin",
+            "password": "Admin123654",
+            "role": "admin"
+        },
+        {
+            "username": "user",
+            "password": "User123654",
+            "role": "user"
+        }
+    ],
+    "plc_link": {
+        "device_type": "S7",
+        "protocol": "modbus_tcp",
+        "byte_order": "ABCD",
+        "heartbeat": 30,
+        "timeout": 10000,
+        "refresh_interval_ms": 60000,
+        "address": "192.168.1.10",
+        "port": 102,
+        "rack": 0,
+        "slot": 1,
+        "username": "",
+        "password": ""
+    },
+    "modbus": {
+        "instrument_port": "COM1",
+        "instrument_address": 1,
+        "baudrate": 9600,
+        "bytesize": 8,
+        "parity": "N",
+        "stopbits": 1,
+        "timeout_s": 1.0,
+        "byte_order": "ABCD",
+        "load_sign": 1,
+        "load_offset": 0.0,
+        "load_clamp_zero": false,
+        "scale": 1.0,
+        "sample_save_interval_s": 5
+    }
 }

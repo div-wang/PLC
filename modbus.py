@@ -4,9 +4,12 @@
 from __future__ import annotations
 
 import math
+import os
+import json
 import struct
 import threading
 import time
+from datetime import datetime
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
@@ -24,12 +27,101 @@ from PyQt5.QtWidgets import (
     QLabel,
     QLineEdit,
     QPushButton,
+    QAbstractItemView,
     QSpinBox,
+    QTableWidget,
+    QTableWidgetItem,
+    QTextEdit,
     QVBoxLayout,
     QWidget,
 )
 
 import app_storage
+import db
+
+
+def _deep_merge(base, override):
+    if not isinstance(base, dict) or not isinstance(override, dict):
+        return override
+    out = dict(base)
+    for k, v in override.items():
+        if k in out and isinstance(out.get(k), dict) and isinstance(v, dict):
+            out[k] = _deep_merge(out.get(k), v)
+        else:
+            out[k] = v
+    return out
+
+
+def _load_setting_template() -> Dict[str, Any]:
+    try:
+        path = app_storage.resource_file_path("setting.json")
+        if not os.path.exists(path):
+            return {}
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def _load_setting_root() -> Dict[str, Any]:
+    template = _load_setting_template()
+    user = app_storage.load_json("setting.json", {})
+    if not isinstance(user, dict):
+        user = {}
+    merged = _deep_merge(template, user)
+
+    try:
+        old_path = app_storage.user_file_path("settings.json")
+        if os.path.exists(old_path) and "modbus" not in merged:
+            with open(old_path, "r", encoding="utf-8") as f:
+                old = json.load(f)
+            if isinstance(old, dict):
+                merged["modbus"] = dict(old)
+    except Exception:
+        pass
+
+    if merged != user:
+        try:
+            app_storage.save_json("setting.json", merged)
+        except Exception:
+            pass
+    return merged
+
+
+def _today_log_path() -> str:
+    d = datetime.now().strftime("%Y-%m-%d")
+    return os.path.join(app_storage.logs_dir(), f"{d}.log")
+
+
+def _cleanup_logs(retention_days: int = 30) -> None:
+    try:
+        base = app_storage.logs_dir()
+        now = datetime.now()
+        for name in os.listdir(base):
+            if not name.endswith(".log"):
+                continue
+            stem = name[:-4]
+            try:
+                dt = datetime.strptime(stem, "%Y-%m-%d")
+            except Exception:
+                continue
+            if (now - dt).days > int(retention_days):
+                try:
+                    os.remove(os.path.join(base, name))
+                except Exception:
+                    pass
+    except Exception:
+        pass
+
+
+def _append_log_line(text: str) -> None:
+    try:
+        path = _today_log_path()
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(text + "\n")
+    except Exception:
+        pass
 
 
 def _u16_to_bytes_be(v: int) -> bytes:
@@ -207,18 +299,19 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
     "stopbits": 1,
     "timeout_s": 1.0,
     "byte_order": "ABCD",
-    "z0_unit": "t",
-    "z0_decimal": 2,
     "load_sign": 1,
     "load_offset": 0.0,
     "load_clamp_zero": False,
+    "scale": 1.0,
+    "sample_save_interval_s": 5,
 }
 
 
 def load_modbus_settings() -> Dict[str, Any]:
-    raw = app_storage.load_json("settings.json", DEFAULT_SETTINGS)
+    root = _load_setting_root()
+    raw = root.get("modbus")
     if not isinstance(raw, dict):
-        raw = dict(DEFAULT_SETTINGS)
+        raw = {}
     merged = {**DEFAULT_SETTINGS, **raw}
     merged["instrument_port"] = str(merged.get("instrument_port") or "").strip() or DEFAULT_SETTINGS["instrument_port"]
     try:
@@ -248,16 +341,6 @@ def load_modbus_settings() -> Dict[str, Any]:
     merged["byte_order"] = str(merged.get("byte_order") or DEFAULT_SETTINGS["byte_order"]).upper()
     if merged["byte_order"] not in {"ABCD", "BADC", "CDAB", "DCBA"}:
         merged["byte_order"] = DEFAULT_SETTINGS["byte_order"]
-    merged["z0_unit"] = str(merged.get("z0_unit") or DEFAULT_SETTINGS["z0_unit"]).strip()
-    if merged["z0_unit"] not in {"kg", "t", "10t", "100t"}:
-        merged["z0_unit"] = DEFAULT_SETTINGS["z0_unit"]
-    try:
-        merged["z0_decimal"] = int(merged.get("z0_decimal", DEFAULT_SETTINGS["z0_decimal"]))
-    except Exception:
-        merged["z0_decimal"] = DEFAULT_SETTINGS["z0_decimal"]
-    merged["z0_decimal"] = max(0, min(3, int(merged["z0_decimal"])))
-    if merged["z0_unit"] in {"10t", "100t"}:
-        merged["z0_decimal"] = 0
 
     try:
         merged["load_sign"] = int(merged.get("load_sign", DEFAULT_SETTINGS["load_sign"]))
@@ -269,21 +352,92 @@ def load_modbus_settings() -> Dict[str, Any]:
     except Exception:
         merged["load_offset"] = DEFAULT_SETTINGS["load_offset"]
     merged["load_clamp_zero"] = bool(merged.get("load_clamp_zero", DEFAULT_SETTINGS["load_clamp_zero"]))
+
+    try:
+        merged["scale"] = float(merged.get("scale", DEFAULT_SETTINGS["scale"]))
+    except Exception:
+        merged["scale"] = DEFAULT_SETTINGS["scale"]
+    merged["scale"] = max(0.0, float(merged["scale"]))
+
+    try:
+        merged["sample_save_interval_s"] = int(merged.get("sample_save_interval_s", DEFAULT_SETTINGS["sample_save_interval_s"]))
+    except Exception:
+        merged["sample_save_interval_s"] = int(DEFAULT_SETTINGS["sample_save_interval_s"])
+    merged["sample_save_interval_s"] = max(0, int(merged["sample_save_interval_s"]))
     return merged
 
 
 def save_modbus_settings(data: Dict[str, Any]) -> Optional[str]:
-    return app_storage.save_json("settings.json", data)
+    root = _load_setting_root()
+    if not isinstance(root, dict):
+        root = {}
+    root["modbus"] = dict(data)
+    return app_storage.save_json("setting.json", root)
+
+
+RING_DB_DEFAULT: Dict[str, Any] = {"records": []}
+
+
+def _active_project_id() -> str:
+    raw = app_storage.load_json("project.json", [])
+    if not isinstance(raw, list):
+        return "default"
+    active: Optional[Dict[str, Any]] = None
+    for p in raw:
+        if isinstance(p, dict) and bool(p.get("is_active", False)):
+            active = p
+            break
+    if active is None and raw and isinstance(raw[0], dict):
+        active = raw[0]
+    if isinstance(active, dict):
+        pid = str(active.get("name_en") or active.get("name_cn") or "").strip()
+        if pid:
+            return pid
+    return "default"
+
+
+def _load_ring_db() -> Dict[str, Any]:
+    raw = app_storage.load_json("ring_records.json", RING_DB_DEFAULT)
+    if not isinstance(raw, dict):
+        raw = dict(RING_DB_DEFAULT)
+    records = raw.get("records")
+    if not isinstance(records, list):
+        records = []
+    return {"records": list(records)}
+
+
+def _save_ring_db(db: Dict[str, Any]) -> Optional[str]:
+    payload = {"records": list(db.get("records") or [])}
+    return app_storage.save_json("ring_records.json", payload)
+
+
+MODBUS_SAMPLES_DB_DEFAULT: Dict[str, Any] = {"records": []}
+
+
+def _load_modbus_samples_db() -> Dict[str, Any]:
+    raw = app_storage.load_json("modbus_samples.json", MODBUS_SAMPLES_DB_DEFAULT)
+    if not isinstance(raw, dict):
+        raw = dict(MODBUS_SAMPLES_DB_DEFAULT)
+    records = raw.get("records")
+    if not isinstance(records, list):
+        records = []
+    return {"records": list(records)}
+
+
+def _save_modbus_samples_db(db: Dict[str, Any]) -> Optional[str]:
+    payload = {"records": list(db.get("records") or [])}
+    return app_storage.save_json("modbus_samples.json", payload)
 
 
 class ModbusSettingsDialog(QDialog):
-    def __init__(self, parent: Optional[QWidget], settings: Dict[str, Any]):
+    def __init__(self, parent: Optional[QWidget], settings: Dict[str, Any], is_admin: bool):
         super().__init__(parent)
         self._settings = dict(settings)
+        self._is_admin = bool(is_admin)
 
         self.setWindowTitle("Modbus设置")
         self.setModal(True)
-        self.resize(420, 360)
+        self.resize(420, 420)
 
         root = QVBoxLayout(self)
 
@@ -329,16 +483,6 @@ class ModbusSettingsDialog(QDialog):
         self.byte_order_input.setCurrentText(str(self._settings.get("byte_order", "ABCD")).upper())
         form.addRow("字节序", self.byte_order_input)
 
-        self.z0_unit_input = QComboBox()
-        self.z0_unit_input.addItems(["kg", "t", "10t", "100t"])
-        self.z0_unit_input.setCurrentText(str(self._settings.get("z0_unit", "t")))
-        form.addRow("总重量单位", self.z0_unit_input)
-
-        self.z0_decimal_input = QSpinBox()
-        self.z0_decimal_input.setRange(0, 3)
-        self.z0_decimal_input.setValue(int(self._settings.get("z0_decimal", 2)))
-        form.addRow("总重量小数位", self.z0_decimal_input)
-
         self.load_sign_input = QComboBox()
         self.load_sign_input.addItems(["正常", "取反"])
         self.load_sign_input.setCurrentIndex(1 if int(self._settings.get("load_sign", 1)) < 0 else 0)
@@ -354,8 +498,17 @@ class ModbusSettingsDialog(QDialog):
         self.load_clamp_zero_input.setChecked(bool(self._settings.get("load_clamp_zero", False)))
         form.addRow("", self.load_clamp_zero_input)
 
-        self.z0_unit_input.currentTextChanged.connect(self._sync_z0_decimal)
-        self._sync_z0_decimal(self.z0_unit_input.currentText())
+        self.sample_save_interval_input = QSpinBox()
+        self.sample_save_interval_input.setRange(0, 86400)
+        self.sample_save_interval_input.setValue(int(self._settings.get("sample_save_interval_s", 5)))
+        form.addRow("采样保存间隔(s)", self.sample_save_interval_input)
+
+        if self._is_admin:
+            self.scale_input = QDoubleSpinBox()
+            self.scale_input.setRange(0.0, 1000000.0)
+            self.scale_input.setDecimals(6)
+            self.scale_input.setValue(float(self._settings.get("scale", 1.0)))
+            form.addRow("总重量比例", self.scale_input)
 
         actions = QHBoxLayout()
         actions.addStretch(1)
@@ -370,16 +523,10 @@ class ModbusSettingsDialog(QDialog):
         self.cancel_btn.clicked.connect(self.reject)
         self.save_btn.clicked.connect(self._on_save)
 
-    def _sync_z0_decimal(self, unit: str) -> None:
-        if unit in {"10t", "100t"}:
-            self.z0_decimal_input.setValue(0)
-            self.z0_decimal_input.setEnabled(False)
-        else:
-            self.z0_decimal_input.setEnabled(True)
-
     def _on_save(self) -> None:
         port = self.port_input.text().strip() or DEFAULT_SETTINGS["instrument_port"]
-        data: Dict[str, Any] = {
+        data: Dict[str, Any] = dict(self._settings)
+        data.update({
             "instrument_port": port,
             "instrument_address": int(self.address_input.value()),
             "baudrate": int(self.baudrate_input.value()),
@@ -388,14 +535,16 @@ class ModbusSettingsDialog(QDialog):
             "bytesize": int(self.bytesize_input.currentText()),
             "timeout_s": float(self.timeout_input.value()),
             "byte_order": str(self.byte_order_input.currentText()).upper(),
-            "z0_unit": str(self.z0_unit_input.currentText()),
-            "z0_decimal": int(self.z0_decimal_input.value()),
             "load_sign": -1 if int(self.load_sign_input.currentIndex()) == 1 else 1,
             "load_offset": float(self.load_offset_input.value()),
             "load_clamp_zero": bool(self.load_clamp_zero_input.isChecked()),
-        }
-        if data["z0_unit"] in {"10t", "100t"}:
-            data["z0_decimal"] = 0
+            "sample_save_interval_s": int(self.sample_save_interval_input.value()),
+        })
+        if self._is_admin:
+            try:
+                data["scale"] = max(0.0, float(self.scale_input.value()))
+            except Exception:
+                data["scale"] = float(self._settings.get("scale", 1.0))
         save_modbus_settings(data)
         self._settings = dict(data)
         self.accept()
@@ -405,17 +554,35 @@ class ModbusSettingsDialog(QDialog):
 
 
 class ModbusPage:
-    def __init__(self):
+    def __init__(self, user_role: str = "user"):
         self.page = QWidget()
         self.page.setStyleSheet("background-color: #f5f7fa;")
 
+        try:
+            db.init_db()
+            db.migrate_ring_records_json_if_needed()
+        except Exception:
+            pass
+
+        _cleanup_logs(30)
+
         self._settings = load_modbus_settings()
+        self._user_role = str(user_role or "user").strip() or "user"
         self._client: Optional[_RTUModbusClient] = None
         self._last_io_error = ""
         self._last_load_diag_at = 0.0
+        self._baseline_total_weight: Optional[float] = None
+        self._last_total_weight: Optional[float] = None
+        self._travel_total: float = 0.0
+        self._baseline_travel_total: Optional[float] = None
+        self._last_poll_at: float = 0.0
+        self._last_sample_at: float = 0.0
         self._poll_timer = QTimer()
         self._poll_timer.setInterval(1000)
         self._poll_timer.timeout.connect(self._poll_once)
+        self._status_cb = None
+        self._auto_attempts = 0
+        self._auto_connecting = False
 
         root = QVBoxLayout(self.page)
         root.setContentsMargins(18, 18, 18, 18)
@@ -427,17 +594,9 @@ class ModbusPage:
         toolbar_layout.setContentsMargins(14, 10, 14, 10)
         toolbar_layout.setSpacing(10)
 
-        self.connect_btn = QPushButton("连接")
-        self.connect_btn.setCursor(Qt.PointingHandCursor)
-        self.connect_btn.setStyleSheet(
-            "QPushButton { background: #1677ff; color: white; border: none; border-radius: 8px; padding: 8px 14px; }"
-            "QPushButton:hover { background: #4096ff; }"
-        )
-        self.connect_btn.clicked.connect(self._toggle_connect)
-
         self.status_label = QLabel("未连接")
         self.status_label.setAlignment(Qt.AlignCenter)
-        self.status_label.setFixedWidth(84)
+        self.status_label.setFixedWidth(110)
         self.status_label.setStyleSheet("background: #fff2e8; color: #d4380d; border: none; border-radius: 8px; padding: 6px 10px;")
 
         self.settings_btn = QPushButton("设置")
@@ -448,40 +607,154 @@ class ModbusPage:
         )
         self.settings_btn.clicked.connect(self._open_settings)
 
-        toolbar_layout.addWidget(self.connect_btn)
         toolbar_layout.addWidget(self.status_label)
         toolbar_layout.addStretch(1)
         toolbar_layout.addWidget(self.settings_btn)
         root.addWidget(toolbar)
 
-        grid = QGridLayout()
-        grid.setHorizontalSpacing(14)
-        grid.setVerticalSpacing(14)
-        root.addLayout(grid)
+        self._ring_page = 1
+        self._ring_page_size = 12
+        ring_frame = QFrame()
+        ring_frame.setStyleSheet("QFrame { background: white; border: none; border-radius: 12px; }")
+        ring_layout = QVBoxLayout(ring_frame)
+        ring_layout.setContentsMargins(14, 12, 14, 12)
+        ring_layout.setSpacing(10)
 
-        self.flow_card = self._make_card("实时流量", "t/h")
-        self.load_card = self._make_card("实时载荷", "kg/m")
-        self.speed_card = self._make_card("实时速度", "m/s")
-        self.total_weight_card = self._make_card("总重量", self._total_weight_display_unit())
+        ring_top = QHBoxLayout()
+        ring_top.setContentsMargins(0, 0, 0, 0)
+        ring_top.setSpacing(10)
+        ring_title = QLabel("环号记录")
+        ring_title.setStyleSheet("color: #111827; font-size: 16px; font-weight: 600;")
+        ring_top.addWidget(ring_title)
+        ring_top.addStretch(1)
 
-        grid.addWidget(self.flow_card["frame"], 0, 0)
-        grid.addWidget(self.load_card["frame"], 0, 1)
-        grid.addWidget(self.speed_card["frame"], 1, 0)
-        grid.addWidget(self.total_weight_card["frame"], 1, 1)
-        grid.setRowStretch(2, 1)
-        grid.setColumnStretch(0, 1)
-        grid.setColumnStretch(1, 1)
+        self.ring_page_label = QLabel("")
+        self.ring_page_label.setStyleSheet("color: #6b7280; font-size: 13px;")
 
-        self._set_values(None, None, None, None, self._total_weight_display_unit())
+        self.ring_prev_btn = QPushButton("上一页")
+        self.ring_prev_btn.setCursor(Qt.PointingHandCursor)
+        self.ring_prev_btn.setStyleSheet(
+            "QPushButton { background: #f3f4f6; color: #111827; border: none; border-radius: 8px; padding: 6px 10px; }"
+            "QPushButton:hover { background: #e5e7eb; }"
+        )
+        self.ring_next_btn = QPushButton("下一页")
+        self.ring_next_btn.setCursor(Qt.PointingHandCursor)
+        self.ring_next_btn.setStyleSheet(
+            "QPushButton { background: #f3f4f6; color: #111827; border: none; border-radius: 8px; padding: 6px 10px; }"
+            "QPushButton:hover { background: #e5e7eb; }"
+        )
+
+        ring_top.addWidget(self.ring_page_label)
+        ring_top.addWidget(self.ring_prev_btn)
+        ring_top.addWidget(self.ring_next_btn)
+        ring_layout.addLayout(ring_top)
+
+        self.ring_table = QTableWidget()
+        self.ring_table.setColumnCount(3)
+        self.ring_table.setHorizontalHeaderLabels(["环号", "重量", "时间"])
+        self.ring_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.ring_table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.ring_table.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.ring_table.verticalHeader().setVisible(False)
+        self.ring_table.horizontalHeader().setStretchLastSection(True)
+        self.ring_table.setStyleSheet(
+            "QTableWidget { border: 1px solid #e5e7eb; border-radius: 10px; gridline-color: #e5e7eb; }"
+            "QHeaderView::section { background: #f9fafb; color: #374151; padding: 6px 8px; border: none; border-bottom: 1px solid #e5e7eb; }"
+        )
+        ring_layout.addWidget(self.ring_table)
+
+        root.addWidget(ring_frame)
+        root.setStretchFactor(ring_frame, 2)
+
+        self._latest_flow: Optional[float] = None
+        self._latest_load: Optional[float] = None
+        self._latest_speed: Optional[float] = None
+        self._latest_total_weight: Optional[float] = None
+        self._latest_total_unit: str = self._total_weight_display_unit()
+        self._set_values(None, None, None, None, self._latest_total_unit)
+
+        log_frame = QFrame()
+        log_frame.setStyleSheet("QFrame { background: white; border: none; border-radius: 12px; }")
+        log_layout = QVBoxLayout(log_frame)
+        log_layout.setContentsMargins(14, 12, 14, 12)
+        log_layout.setSpacing(10)
+
+        self.log_area = QTextEdit()
+        self.log_area.setReadOnly(True)
+        self.log_area.setStyleSheet("QTextEdit { background: #0b1220; color: #d1d5db; border: none; border-radius: 10px; font-family: Consolas; }")
+        log_layout.addWidget(self.log_area)
+
+        root.addWidget(log_frame)
+        root.setStretchFactor(log_frame, 1)
+
+        self.ring_prev_btn.clicked.connect(self._ring_prev_page)
+        self.ring_next_btn.clicked.connect(self._ring_next_page)
+        self._refresh_ring_table()
 
     def get_page(self) -> QWidget:
         return self.page
 
+    def set_user_role(self, user_role: str) -> None:
+        self._user_role = str(user_role or "user").strip() or "user"
+
+    def set_status_callback(self, cb) -> None:
+        self._status_cb = cb
+
+    def _emit_status(self, status: str) -> None:
+        self._set_status_badge(str(status))
+        try:
+            if callable(self._status_cb):
+                self._status_cb(str(status))
+        except Exception:
+            pass
+
+    def _set_status_badge(self, status: str) -> None:
+        s = str(status or "").strip().lower()
+        if s == "connected":
+            self.status_label.setText("已连接")
+            self.status_label.setStyleSheet("background: #f6ffed; color: #389e0d; border: none; border-radius: 8px; padding: 6px 10px;")
+            return
+        if s == "connecting":
+            self.status_label.setText("连接中")
+            self.status_label.setStyleSheet("background: #f5f5f5; color: #595959; border: none; border-radius: 8px; padding: 6px 10px;")
+            return
+        self.status_label.setText("未连接")
+        self.status_label.setStyleSheet("background: #fff2e8; color: #d4380d; border: none; border-radius: 8px; padding: 6px 10px;")
+
+    def next_ring(self) -> None:
+        self._on_next_ring()
+
+    def start_auto_connect(self, max_attempts: int = 3, interval_ms: int = 500) -> None:
+        if self._auto_connecting:
+            return
+        self._auto_connecting = True
+        self._auto_attempts = 0
+        self._auto_interval_ms = max(100, int(interval_ms))
+        self._emit_status("connecting")
+        QTimer.singleShot(0, lambda: self._auto_connect_step(max_attempts))
+
+    def _auto_connect_step(self, max_attempts: int) -> None:
+        if not self._auto_connecting:
+            return
+        if self._client is not None and self._client.is_connected():
+            self._emit_status("connected")
+            self._auto_connecting = False
+            return
+        ok = self._connect()
+        if ok and self._client is not None and self._client.is_connected():
+            self._emit_status("connected")
+            self._auto_connecting = False
+            return
+        self._auto_attempts += 1
+        if self._auto_attempts >= int(max_attempts):
+            self._emit_status("failed")
+            self._auto_connecting = False
+            return
+        self._emit_status("connecting")
+        QTimer.singleShot(int(getattr(self, "_auto_interval_ms", 500)), lambda: self._auto_connect_step(max_attempts))
+
     def _total_weight_display_unit(self) -> str:
-        unit = str(self._settings.get("z0_unit") or "t")
-        if unit in {"10t", "100t"}:
-            return "t"
-        return unit
+        return "t"
 
     def _make_card(self, title: str, unit: str) -> Dict[str, Any]:
         frame = QFrame()
@@ -522,17 +795,151 @@ class ModbusPage:
         return {"frame": frame, "title": title_label, "value": value_label, "unit": unit_label}
 
     def _log(self, msg: str) -> None:
-        return
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        line = f"[{now}] {msg}"
+        _append_log_line(line)
+        try:
+            self.log_area.append(line)
+            doc = self.log_area.document()
+            while doc.blockCount() > 1000:
+                cursor = self.log_area.textCursor()
+                cursor.movePosition(cursor.Start)
+                cursor.select(cursor.LineUnderCursor)
+                cursor.removeSelectedText()
+                cursor.deleteChar()
+        except Exception:
+            pass
+
+    def _ring_records_for_current_project(self) -> List[Dict[str, Any]]:
+        pid = _active_project_id()
+        ring_db = _load_ring_db()
+        records = ring_db.get("records") or []
+        filtered: List[Dict[str, Any]] = []
+        for r in records:
+            if not isinstance(r, dict):
+                continue
+            if str(r.get("project_id") or "") != pid:
+                continue
+            filtered.append(dict(r))
+        filtered.sort(key=lambda x: int(x.get("ring_no") or 0))
+        return filtered
+
+    def _refresh_ring_table(self) -> None:
+        rows = self._ring_records_for_current_project()
+        total = len(rows)
+        size = max(1, int(getattr(self, "_ring_page_size", 12)))
+        total_pages = max(1, (total + size - 1) // size)
+        self._ring_page = max(1, min(int(getattr(self, "_ring_page", 1)), total_pages))
+
+        start = (self._ring_page - 1) * size
+        page_rows = rows[start : start + size]
+
+        try:
+            self.ring_table.setRowCount(len(page_rows))
+            for i, rec in enumerate(page_rows):
+                ring_no = int(rec.get("ring_no") or 0)
+                weight = rec.get("weight")
+                ts = str(rec.get("time") or "")
+
+                item0 = QTableWidgetItem(str(ring_no) if ring_no > 0 else "")
+                item0.setTextAlignment(Qt.AlignCenter)
+                self.ring_table.setItem(i, 0, item0)
+
+                wtxt = ""
+                try:
+                    if isinstance(weight, (int, float)):
+                        wtxt = f"{float(weight):.3f}"
+                except Exception:
+                    wtxt = ""
+                item1 = QTableWidgetItem(wtxt)
+                item1.setTextAlignment(Qt.AlignCenter)
+                self.ring_table.setItem(i, 1, item1)
+
+                item2 = QTableWidgetItem(ts)
+                item2.setTextAlignment(Qt.AlignCenter)
+                self.ring_table.setItem(i, 2, item2)
+
+            self.ring_table.setColumnWidth(0, 90)
+            self.ring_table.setColumnWidth(1, 140)
+        except Exception:
+            pass
+
+        try:
+            self.ring_page_label.setText(f"第 {self._ring_page}/{total_pages} 页（{total} 条）")
+            self.ring_prev_btn.setEnabled(self._ring_page > 1)
+            self.ring_next_btn.setEnabled(self._ring_page < total_pages)
+        except Exception:
+            pass
+
+    def _ring_prev_page(self) -> None:
+        self._ring_page = max(1, int(getattr(self, "_ring_page", 1)) - 1)
+        self._refresh_ring_table()
+
+    def _ring_next_page(self) -> None:
+        self._ring_page = int(getattr(self, "_ring_page", 1)) + 1
+        self._refresh_ring_table()
+
+    def _on_next_ring(self) -> None:
+        if self._last_total_weight is None:
+            return
+        pid = _active_project_id()
+        records = self._ring_records_for_current_project()
+        if records:
+            last = records[-1]
+            last_ring = int(last.get("ring_no") or 0)
+            prev_total = float(last.get("total_weight") or 0.0)
+            prev_travel_total = float(last.get("total_travel") or 0.0)
+            ring_no = last_ring + 1
+        else:
+            ring_no = 1
+            prev_total = float(self._baseline_total_weight) if self._baseline_total_weight is not None else float(self._last_total_weight)
+            prev_travel_total = float(self._baseline_travel_total) if self._baseline_travel_total is not None else float(self._travel_total)
+
+        current_total = float(self._last_total_weight)
+        weight = current_total - float(prev_total)
+        travel = float(self._travel_total) - float(prev_travel_total)
+        ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        rec = {
+            "project_id": pid,
+            "ring_no": int(ring_no),
+            "weight": float(weight),
+            "travel": float(travel),
+            "time": ts,
+            "total_weight": float(current_total),
+            "total_travel": float(self._travel_total),
+        }
+
+        ring_db = _load_ring_db()
+        ring_rows = ring_db.get("records")
+        if not isinstance(ring_rows, list):
+            ring_rows = []
+        ring_rows.append(rec)
+        ring_db["records"] = ring_rows
+        _save_ring_db(ring_db)
+        try:
+            db.upsert_ring_detail(
+                project_id=str(pid),
+                ring_no=int(ring_no),
+                weight=float(weight),
+                travel=float(travel),
+                time_str=str(ts),
+                total_weight=float(current_total),
+                total_travel=float(self._travel_total),
+            )
+        except Exception:
+            pass
+        self._log(f"下一环: 环号={int(ring_no)}, 重量={float(weight):g}, 行程={float(travel):g}, 总重量={float(current_total):.3f}")
+        try:
+            total = len(self._ring_records_for_current_project())
+            size = max(1, int(getattr(self, "_ring_page_size", 12)))
+            self._ring_page = max(1, (total + size - 1) // size)
+            self._refresh_ring_table()
+        except Exception:
+            pass
 
     def _set_connected_ui(self, connected: bool) -> None:
-        if connected:
-            self.connect_btn.setText("断开")
-            self.status_label.setText("已连接")
-            self.status_label.setStyleSheet("background: #f6ffed; color: #389e0d; border: none; border-radius: 8px; padding: 6px 10px;")
-        else:
-            self.connect_btn.setText("连接")
-            self.status_label.setText("未连接")
-            self.status_label.setStyleSheet("background: #fff2e8; color: #d4380d; border: none; border-radius: 8px; padding: 6px 10px;")
+        self._set_status_badge("connected" if connected else "failed")
 
     def _build_client(self) -> _RTUModbusClient:
         s = dict(self._settings)
@@ -548,32 +955,45 @@ class ModbusPage:
         return _RTUModbusClient(settings)
 
     def _connect(self) -> bool:
-        self._log(f"正在连接 {self._settings['instrument_port']} (地址:{self._settings['instrument_address']})...")
+        self._log(f"连接中: {self._settings.get('instrument_port')} (地址:{self._settings.get('instrument_address')})")
         self._disconnect()
         self._client = self._build_client()
         ok, err = self._client.connect()
         if ok:
-            self._log("通讯库: minimalmodbus")
-            self._log("连接成功")
             self._last_load_diag_at = 0.0
+            self._baseline_total_weight = None
+            self._last_total_weight = None
+            self._travel_total = 0.0
+            self._baseline_travel_total = None
+            self._last_poll_at = 0.0
+            self._last_sample_at = 0.0
             self._set_connected_ui(True)
             self._poll_timer.start()
             self._poll_once()
+            if self._client is None or not self._client.is_connected():
+                return False
+            self._emit_status("connected")
+            self._log("已连接")
             return True
-        self._log(f"连接失败: {err}")
         self._disconnect()
+        self._log(f"连接失败: {err}")
         return False
 
     def _disconnect(self) -> None:
         self._poll_timer.stop()
         if self._client is not None:
-            self._log("断开连接")
             try:
                 self._client.close()
             except Exception:
                 pass
         self._client = None
         self._last_io_error = ""
+        self._baseline_total_weight = None
+        self._last_total_weight = None
+        self._travel_total = 0.0
+        self._baseline_travel_total = None
+        self._last_poll_at = 0.0
+        self._last_sample_at = 0.0
         self._set_connected_ui(False)
 
     def _toggle_connect(self) -> None:
@@ -586,11 +1006,11 @@ class ModbusPage:
             self._set_values(None, None, None, None, self._total_weight_display_unit())
 
     def _open_settings(self) -> None:
-        dlg = ModbusSettingsDialog(self.page, self._settings)
+        dlg = ModbusSettingsDialog(self.page, self._settings, is_admin=(self._user_role == "admin"))
         if dlg.exec_() != QDialog.Accepted:
             return
         self._settings = dlg.settings()
-        self.total_weight_card["unit"].setText(self._total_weight_display_unit())
+        self._latest_total_unit = "t"
         if self._client is not None and self._client.is_connected():
             self._connect()
 
@@ -640,18 +1060,6 @@ class ModbusPage:
         except Exception:
             return None
 
-    def _calc_total_weight(self, int_part: int, frac_part: float) -> Tuple[float, str]:
-        unit = str(self._settings.get("z0_unit") or "t")
-        dec = int(self._settings.get("z0_decimal") or 0)
-        if unit in {"10t", "100t"}:
-            dec = 0
-        raw = float(int_part) + round(float(frac_part), dec)
-        if unit == "10t":
-            return round(raw * 10, 0), "t"
-        if unit == "100t":
-            return round(raw * 100, 0), "t"
-        return round(raw, dec), unit
-
     def _set_values(
         self,
         flow: Optional[float],
@@ -660,15 +1068,14 @@ class ModbusPage:
         total_weight: Optional[float],
         total_weight_unit: str,
     ) -> None:
-        self.flow_card["value"].setText("--" if flow is None else f"{flow:.2f}")
-        self.load_card["value"].setText("--" if load is None else f"{load:.2f}")
-        self.speed_card["value"].setText("--" if speed is None else f"{speed:.2f}")
-        self.total_weight_card["value"].setText("--" if total_weight is None else f"{total_weight:g}")
-        self.total_weight_card["unit"].setText(total_weight_unit)
+        self._latest_flow = float(flow) if isinstance(flow, (int, float)) else None
+        self._latest_load = float(load) if isinstance(load, (int, float)) else None
+        self._latest_speed = float(speed) if isinstance(speed, (int, float)) else None
+        self._latest_total_weight = float(total_weight) if isinstance(total_weight, (int, float)) else None
+        self._latest_total_unit = str(total_weight_unit or self._total_weight_display_unit())
 
     def _poll_once(self) -> None:
         if self._client is None or not self._client.is_connected():
-            self._log("连接已断开，停止读取")
             self._disconnect()
             self._set_values(None, None, None, None, self._total_weight_display_unit())
             return
@@ -677,14 +1084,27 @@ class ModbusPage:
         load_raw = self._read_float32(52)
         speed = self._read_float32(54)
         total_int = self._read_uint32(20)
-        total_frac = self._read_float32(22)
 
-        if flow is None or load_raw is None or speed is None or total_int is None or total_frac is None:
+        if flow is None or load_raw is None or speed is None or total_int is None:
             detail = self._last_io_error.strip()
             self._log("读取数据失败" if not detail else f"读取数据失败: {detail}")
             self._disconnect()
             self._set_values(None, None, None, None, self._total_weight_display_unit())
+            if not self._auto_connecting:
+                self.start_auto_connect(max_attempts=5, interval_ms=2000)
             return
+
+        now_mono = time.monotonic()
+        if self._last_poll_at > 0:
+            dt = float(now_mono - self._last_poll_at)
+            if 0.0 < dt < 5.0:
+                try:
+                    v_speed = float(speed)
+                except Exception:
+                    v_speed = 0.0
+                if v_speed > 0:
+                    self._travel_total += v_speed * dt
+        self._last_poll_at = now_mono
 
         load = float(load_raw)
         try:
@@ -716,8 +1136,63 @@ class ModbusPage:
                         msg += "，候选解析: " + ", ".join(candidates)
                     self._log(msg)
 
-        total_weight, total_unit = self._calc_total_weight(total_int, total_frac)
+        total_weight = float(total_int) / 1000.0
+        total_unit = "t"
+        try:
+            scale = float(self._settings.get("scale", 1.0))
+        except Exception:
+            scale = 1.0
+        scale = max(0.0, float(scale))
+        total_weight = float(total_weight) * scale
+        self._last_total_weight = float(total_weight)
+        if self._baseline_total_weight is None:
+            self._baseline_total_weight = float(total_weight)
+        if self._baseline_travel_total is None:
+            self._baseline_travel_total = float(self._travel_total)
         self._set_values(flow, load, speed, total_weight, total_unit)
-        self._log(
-            f"实时流量={flow:.2f} t/h, 实时载荷={load:.2f} kg/m, 实时速度={speed:.2f} m/s, 总重量={total_weight:g} {total_unit}"
-        )
+        self._emit_status("connected")
+
+        try:
+            app_storage.save_json(
+                "modbus_state.json",
+                {
+                    "project_id": _active_project_id(),
+                    "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    "flow": float(flow),
+                    "load": float(load),
+                    "speed": float(speed),
+                    "total_weight": float(total_weight),
+                    "total_weight_unit": str(total_unit),
+                    "travel_total": float(self._travel_total),
+                },
+            )
+        except Exception:
+            pass
+
+        try:
+            interval_s = int(self._settings.get("sample_save_interval_s", 0))
+        except Exception:
+            interval_s = 0
+        interval_s = max(0, int(interval_s))
+        if interval_s > 0:
+            if self._last_sample_at <= 0 or (now_mono - self._last_sample_at) >= float(interval_s):
+                self._last_sample_at = now_mono
+                rec = {
+                    "project_id": _active_project_id(),
+                    "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    "flow": float(flow),
+                    "load": float(load),
+                    "speed": float(speed),
+                    "total_weight": float(total_weight),
+                    "total_weight_unit": str(total_unit),
+                    "travel_total": float(self._travel_total),
+                }
+                db = _load_modbus_samples_db()
+                rows = db.get("records")
+                if not isinstance(rows, list):
+                    rows = []
+                rows.append(rec)
+                if len(rows) > 20000:
+                    rows = rows[-20000:]
+                db["records"] = rows
+                _save_modbus_samples_db(db)

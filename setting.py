@@ -9,18 +9,46 @@
 import os
 import json
 import codecs
+import zipfile
+from datetime import datetime, timedelta
 from PyQt5.QtWebEngineWidgets import QWebEngineView
 from PyQt5.QtCore import QUrl, QSettings, QObject, pyqtSlot
 from PyQt5.QtWebChannel import QWebChannel
+from PyQt5.QtWidgets import QFileDialog, QMessageBox
 
 import app_storage
+
+
+def _deep_merge(base, override):
+    if not isinstance(base, dict) or not isinstance(override, dict):
+        return override
+    out = dict(base)
+    for k, v in override.items():
+        if k in out and isinstance(out.get(k), dict) and isinstance(v, dict):
+            out[k] = _deep_merge(out.get(k), v)
+        else:
+            out[k] = v
+    return out
+
+
+def _load_setting_template() -> dict:
+    try:
+        path = app_storage.resource_file_path("setting.json")
+        if not os.path.exists(path):
+            return {}
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
 
 class SettingPage:
     """设置页面类"""
     
-    def __init__(self):
+    def __init__(self, on_logout=None):
         self.page = QWebEngineView()
-        self.bridge = SettingsBridge()
+        self.bridge = SettingsBridge(on_logout=on_logout)
         self.channel = QWebChannel(self.page.page())
         self.channel.registerObject('bridge', self.bridge)
         self.page.page().setWebChannel(self.channel)
@@ -32,14 +60,17 @@ class SettingPage:
     
     def load_settings(self):
         """从JSON文件加载设置"""
-        default_settings = {
-            "theme": "浅色",
-            "refresh_interval": 5,
-            "auto_save_logs": True,
-            "enable_notifications": True
-        }
-
-        return app_storage.load_json("setting.json", default_settings)
+        template = _load_setting_template()
+        user = app_storage.load_json("setting.json", {})
+        if not isinstance(user, dict):
+            user = {}
+        merged = _deep_merge(template, user)
+        if merged != user:
+            try:
+                app_storage.save_json("setting.json", merged)
+            except Exception:
+                pass
+        return merged
 
     def generate_setting_page(self):
         """生成设置页面内容"""
@@ -169,6 +200,35 @@ class SettingPage:
                 .save-btn:hover {
                     background-color: #40a9ff;
                 }
+                .logout-btn {
+                    background-color: #ef4444;
+                    color: white;
+                    border: none;
+                    padding: 10px 20px;
+                    border-radius: 4px;
+                    cursor: pointer;
+                    font-size: 14px;
+                    margin-top: 20px;
+                    float: left;
+                }
+                .logout-btn:hover {
+                    background-color: #dc2626;
+                }
+                .export-btn {
+                    background-color: #10b981;
+                    color: white;
+                    border: none;
+                    padding: 10px 20px;
+                    border-radius: 4px;
+                    cursor: pointer;
+                    font-size: 14px;
+                    margin-top: 20px;
+                    margin-left: 10px;
+                    float: left;
+                }
+                .export-btn:hover {
+                    background-color: #059669;
+                }
             </style>
         </head>
         <body>
@@ -229,6 +289,8 @@ class SettingPage:
                     </div>
                 </div>
                 
+                <button class="logout-btn" id="logoutBtn">退出登录</button>
+                <button class="export-btn" id="exportLogsBtn">导出日志</button>
                 <button class="save-btn" id="saveSettingsBtn">保存设置</button>
                 <div style="clear: both;"></div>
             </div>
@@ -249,6 +311,16 @@ class SettingPage:
 
                         bridge.saveSettings(theme, refreshInterval, autoSaveLogs, enableNotifications);
                         alert('设置已保存');
+                    });
+
+                    var logoutBtn = document.getElementById('logoutBtn');
+                    logoutBtn.addEventListener('click', function(){
+                        bridge.logout();
+                    });
+
+                    var exportBtn = document.getElementById('exportLogsBtn');
+                    exportBtn.addEventListener('click', function(){
+                        bridge.exportLogs();
                     });
                 });
             });
@@ -272,17 +344,62 @@ class SettingPage:
         self.page.load(QUrl.fromLocalFile(setting_html_path))
 
 class SettingsBridge(QObject):
+    def __init__(self, on_logout=None):
+        super().__init__()
+        self._on_logout = on_logout
+
     @pyqtSlot(str, int, bool, bool)
     def saveSettings(self, theme, refresh_interval, auto_save_logs, enable_notifications):
         """保存设置到JSON文件"""
-        settings = {
-            "theme": theme,
-            "refresh_interval": refresh_interval,
-            "auto_save_logs": auto_save_logs,
-            "enable_notifications": enable_notifications
-        }
+        existing = app_storage.load_json("setting.json", {})
+        if not isinstance(existing, dict):
+            existing = {}
+        existing["theme"] = theme
+        existing["refresh_interval"] = refresh_interval
+        existing["auto_save_logs"] = auto_save_logs
+        existing["enable_notifications"] = enable_notifications
 
         try:
-            app_storage.save_json("setting.json", settings)
+            app_storage.save_json("setting.json", existing)
         except Exception as e:
             print(f"Error saving settings: {e}")
+
+    @pyqtSlot()
+    def logout(self):
+        try:
+            if callable(self._on_logout):
+                self._on_logout()
+        except Exception:
+            pass
+
+    @pyqtSlot()
+    def exportLogs(self):
+        try:
+            base = app_storage.logs_dir()
+            default_name = f"logs_{datetime.now().strftime('%Y%m%d')}.zip"
+            dst, _ = QFileDialog.getSaveFileName(None, "导出日志", default_name, "Zip (*.zip)")
+            if not dst:
+                return
+            if not dst.lower().endswith(".zip"):
+                dst = dst + ".zip"
+            cutoff = datetime.now() - timedelta(days=30)
+            files = []
+            for name in os.listdir(base):
+                if not name.endswith(".log"):
+                    continue
+                stem = name[:-4]
+                try:
+                    dt = datetime.strptime(stem, "%Y-%m-%d")
+                except Exception:
+                    continue
+                if dt >= cutoff:
+                    files.append(os.path.join(base, name))
+            with zipfile.ZipFile(dst, "w", compression=zipfile.ZIP_DEFLATED) as z:
+                for p in files:
+                    z.write(p, arcname=os.path.basename(p))
+            QMessageBox.information(None, "导出日志", f"已导出 {len(files)} 个日志文件。")
+        except Exception as e:
+            try:
+                QMessageBox.warning(None, "导出日志", f"导出失败: {e}")
+            except Exception:
+                pass

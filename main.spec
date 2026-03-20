@@ -1,6 +1,11 @@
 # -*- mode: python ; coding: utf-8 -*-
 
 
+from PyInstaller.utils.hooks import collect_all
+
+minimalmodbus_datas, minimalmodbus_binaries, minimalmodbus_hiddenimports = collect_all("minimalmodbus")
+serial_datas, serial_binaries, serial_hiddenimports = collect_all("serial")
+
 a = Analysis(
     ['main.py'],
     pathex=[],
@@ -9,7 +14,7 @@ a = Analysis(
         ('ui', 'ui'),
         ('project.json', '.'),
         ('setting.json', '.'),
-    ],
+    ] + minimalmodbus_datas + serial_datas,
     hiddenimports=[
         'PyQt5',
         'PyQt5.QtCore',
@@ -24,7 +29,7 @@ a = Analysis(
         'minimalmodbus',
         'minimalmodbus.serial',
         'serial',
-    ],
+    ] + minimalmodbus_hiddenimports + serial_hiddenimports,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
