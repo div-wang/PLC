@@ -1080,12 +1080,9 @@ class ModbusPage:
             self._set_values(None, None, None, None, self._total_weight_display_unit())
             return
 
-        flow = self._read_float32(50)
-        load_raw = self._read_float32(52)
-        speed = self._read_float32(54)
         total_int = self._read_uint32(20)
 
-        if flow is None or load_raw is None or speed is None or total_int is None:
+        if total_int is None:
             detail = self._last_io_error.strip()
             self._log("读取数据失败" if not detail else f"读取数据失败: {detail}")
             self._disconnect()
@@ -1093,6 +1090,10 @@ class ModbusPage:
             if not self._auto_connecting:
                 self.start_auto_connect(max_attempts=5, interval_ms=2000)
             return
+
+        flow = self._read_float32(50)
+        load_raw = self._read_float32(52)
+        speed = self._read_float32(54)
 
         now_mono = time.monotonic()
         if self._last_poll_at > 0:
@@ -1106,35 +1107,37 @@ class ModbusPage:
                     self._travel_total += v_speed * dt
         self._last_poll_at = now_mono
 
-        load = float(load_raw)
-        try:
-            load = (load + float(self._settings.get("load_offset", 0.0))) * (1.0 if int(self._settings.get("load_sign", 1)) >= 0 else -1.0)
-        except Exception:
-            pass
-        if bool(self._settings.get("load_clamp_zero", False)) and load < 0:
-            load = 0.0
+        load: Optional[float] = None
+        if isinstance(load_raw, (int, float)):
+            load = float(load_raw)
+            try:
+                load = (load + float(self._settings.get("load_offset", 0.0))) * (1.0 if int(self._settings.get("load_sign", 1)) >= 0 else -1.0)
+            except Exception:
+                pass
+            if bool(self._settings.get("load_clamp_zero", False)) and load < 0:
+                load = 0.0
 
-        if load_raw < 0:
-            now = time.monotonic()
-            if self._last_load_diag_at <= 0 or (now - self._last_load_diag_at) >= 30.0:
-                self._last_load_diag_at = now
-                regs = self._read_regs(52, 2)
-                if regs is not None and len(regs) == 2:
-                    r0, r1 = int(regs[0]) & 0xFFFF, int(regs[1]) & 0xFFFF
-                    candidates: List[str] = []
-                    for bo in ("ABCD", "BADC", "CDAB", "DCBA"):
-                        try:
-                            v = float(decode_float32((r0, r1), byte_order=bo))
-                            if math.isnan(v) or math.isinf(v):
+            if load_raw < 0:
+                now = time.monotonic()
+                if self._last_load_diag_at <= 0 or (now - self._last_load_diag_at) >= 30.0:
+                    self._last_load_diag_at = now
+                    regs = self._read_regs(52, 2)
+                    if regs is not None and len(regs) == 2:
+                        r0, r1 = int(regs[0]) & 0xFFFF, int(regs[1]) & 0xFFFF
+                        candidates: List[str] = []
+                        for bo in ("ABCD", "BADC", "CDAB", "DCBA"):
+                            try:
+                                v = float(decode_float32((r0, r1), byte_order=bo))
+                                if math.isnan(v) or math.isinf(v):
+                                    continue
+                                candidates.append(f"{bo}={v:.6g}")
+                            except Exception:
                                 continue
-                            candidates.append(f"{bo}={v:.6g}")
-                        except Exception:
-                            continue
-                    bo_now = str(self._settings.get("byte_order") or "ABCD").upper()
-                    msg = f"载荷为负，原始寄存器[52..53]=[0x{r0:04X},0x{r1:04X}]，当前字节序={bo_now}"
-                    if candidates:
-                        msg += "，候选解析: " + ", ".join(candidates)
-                    self._log(msg)
+                        bo_now = str(self._settings.get("byte_order") or "ABCD").upper()
+                        msg = f"载荷为负，原始寄存器[52..53]=[0x{r0:04X},0x{r1:04X}]，当前字节序={bo_now}"
+                        if candidates:
+                            msg += "，候选解析: " + ", ".join(candidates)
+                        self._log(msg)
 
         total_weight = float(total_int) / 1000.0
         total_unit = "t"
@@ -1149,6 +1152,7 @@ class ModbusPage:
             self._baseline_total_weight = float(total_weight)
         if self._baseline_travel_total is None:
             self._baseline_travel_total = float(self._travel_total)
+        self._last_io_error = ""
         self._set_values(flow, load, speed, total_weight, total_unit)
         self._emit_status("connected")
 
@@ -1158,9 +1162,9 @@ class ModbusPage:
                 {
                     "project_id": _active_project_id(),
                     "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                    "flow": float(flow),
-                    "load": float(load),
-                    "speed": float(speed),
+                    "flow": float(flow) if isinstance(flow, (int, float)) else None,
+                    "load": float(load) if isinstance(load, (int, float)) else None,
+                    "speed": float(speed) if isinstance(speed, (int, float)) else None,
                     "total_weight": float(total_weight),
                     "total_weight_unit": str(total_unit),
                     "travel_total": float(self._travel_total),
@@ -1180,9 +1184,9 @@ class ModbusPage:
                 rec = {
                     "project_id": _active_project_id(),
                     "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                    "flow": float(flow),
-                    "load": float(load),
-                    "speed": float(speed),
+                    "flow": float(flow) if isinstance(flow, (int, float)) else None,
+                    "load": float(load) if isinstance(load, (int, float)) else None,
+                    "speed": float(speed) if isinstance(speed, (int, float)) else None,
                     "total_weight": float(total_weight),
                     "total_weight_unit": str(total_unit),
                     "travel_total": float(self._travel_total),

@@ -33,8 +33,19 @@ class BaseUI(QMainWindow):
     def initUI(self):
         """初始化UI界面"""
         # 设置窗口标题和大小
-        self.setWindowTitle('皮带秤')
-        self.setGeometry(100, 100, 1200, 800)
+        self.setWindowTitle('渣土称重监控系统')
+        try:
+            screen = QApplication.primaryScreen()
+            geo = screen.availableGeometry() if screen is not None else None
+            if geo is not None:
+                w = min(800, int(geo.width()))
+                h = min(600, int(geo.height()))
+                self.resize(w, h)
+                self.move(int(geo.x() + (geo.width() - w) / 2), int(geo.y() + (geo.height() - h) / 2))
+            else:
+                self.resize(800, 600)
+        except Exception:
+            self.resize(800, 600)
         
         # 创建中央部件
         self.central_widget = QWidget()
@@ -65,6 +76,8 @@ class BaseUI(QMainWindow):
     def create_left_sidebar(self):
         """创建左侧导航栏"""
         self.left_sidebar = QWidget()
+        self.left_sidebar.setFixedWidth(120)
+        self.left_sidebar.setMaximumWidth(120)
         self.left_layout = QVBoxLayout(self.left_sidebar)
         self.left_layout.setContentsMargins(0, 0, 0, 0)
         self.left_layout.setSpacing(0)
@@ -76,22 +89,6 @@ class BaseUI(QMainWindow):
                 color: white;
             }
         """)
-        
-        # 添加标题/Logo区域
-        logo_widget = QWidget()
-        logo_layout = QVBoxLayout(logo_widget)
-        logo_layout.setContentsMargins(20, 20, 20, 20)
-        
-        title_label = QLabel("PLC监控系统")
-        title_label.setStyleSheet("""
-            color: white;
-            font-size: 20px;
-            font-weight: bold;
-        """)
-        title_label.setAlignment(Qt.AlignCenter)
-        logo_layout.addWidget(title_label)
-        
-        self.left_layout.addWidget(logo_widget)
         
         # 创建导航按钮
         self.home_btn = QPushButton('主页')
@@ -106,9 +103,9 @@ class BaseUI(QMainWindow):
                 background-color: transparent;
                 color: rgba(255, 255, 255, 0.65);
                 border: none;
-                padding: 15px 20px;
+                padding: 12px 12px;
                 text-align: left;
-                font-size: 14px;
+                font-size: 13px;
             }
             QPushButton:hover {
                 color: white;
@@ -144,7 +141,7 @@ class BaseUI(QMainWindow):
         # 底部状态信息
         info_widget = QWidget()
         info_layout = QVBoxLayout(info_widget)
-        info_layout.setContentsMargins(20, 20, 20, 20)
+        info_layout.setContentsMargins(12, 12, 12, 12)
         
         self.time_label = QLabel()
         self.ip_label = QLabel()
@@ -177,7 +174,7 @@ class BaseUI(QMainWindow):
         # 顶部标题栏
         header = QWidget()
         header.setStyleSheet("background-color: white; border-bottom: 1px solid #e8e8e8;")
-        header.setFixedHeight(64)
+        header.setFixedHeight(56)
         header_layout = QHBoxLayout(header)
         header_layout.setContentsMargins(20, 0, 20, 0)
         
@@ -311,9 +308,9 @@ class BaseUI(QMainWindow):
                         background-color: #1890ff;
                         color: white;
                         border: none;
-                        padding: 15px 20px;
+                        padding: 12px 12px;
                         text-align: left;
-                        font-size: 14px;
+                        font-size: 13px;
                     }
                 """)
             else:
@@ -323,9 +320,9 @@ class BaseUI(QMainWindow):
                         background-color: transparent;
                         color: rgba(255, 255, 255, 0.65);
                         border: none;
-                        padding: 15px 20px;
+                        padding: 12px 12px;
                         text-align: left;
-                        font-size: 14px;
+                        font-size: 13px;
                     }
                     QPushButton:hover {
                         color: white;
@@ -362,7 +359,7 @@ class BaseUI(QMainWindow):
         """更新时间显示"""
         current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         if hasattr(self, 'time_label'):
-            self.time_label.setText(f"当前时间: {current_time}")
+            self.time_label.setText(f"{current_time}")
     
     def get_ip_address(self):
         """获取本机IP地址"""

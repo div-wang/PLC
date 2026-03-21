@@ -204,45 +204,45 @@ class HomePage:
                 body {{
                     font-family: Arial, sans-serif;
                     margin: 0;
-                    padding: 20px;
+                    padding: 12px;
                     background-color: #f9f9f9;
                 }}
                 .chart-container {{
                     display: flex;
                     flex-direction: column;
-                    gap: 30px;
+                    gap: 16px;
                 }}
                 .chart-box {{
                     background-color: white;
                     border-radius: 5px;
                     box-shadow: 0 2px 5px rgba(0,0,0,0.1);
-                    padding: 20px;
+                    padding: 14px;
                     width: 100%;
                     box-sizing: border-box;
                 }}
                 .chart-title {{
-                    font-size: 18px;
+                    font-size: 16px;
                     font-weight: bold;
-                    margin-bottom: 20px;
+                    margin-bottom: 12px;
                     color: #333;
                     text-align: center;
                 }}
                 .update-time {{
                     text-align: right;
                     color: #888;
-                    font-size: 12px;
-                    margin-top: 10px;
+                    font-size: 11px;
+                    margin-top: 6px;
                 }}
                 .data-grid {{
                     display: grid;
                     grid-template-columns: repeat(4, 1fr);
-                    gap: 20px;
-                    margin-bottom: 20px;
+                    gap: 10px;
+                    margin-bottom: 12px;
                 }}
                 .data-card {{
                     background-color: #f0f2f5;
                     border-radius: 8px;
-                    padding: 20px;
+                    padding: 12px;
                     text-align: center;
                     transition: all 0.3s;
                     cursor: pointer;
@@ -253,17 +253,17 @@ class HomePage:
                     background-color: #e6f7ff;
                 }}
                 .data-label {{
-                    font-size: 16px;
+                    font-size: 13px;
                     color: #666;
-                    margin-bottom: 10px;
+                    margin-bottom: 6px;
                 }}
                 .data-value {{
-                    font-size: 32px;
+                    font-size: 22px;
                     font-weight: bold;
                     color: #1890ff;
                 }}
                 .data-unit {{
-                    font-size: 16px;
+                    font-size: 12px;
                     color: #999;
                     font-weight: normal;
                 }}
@@ -279,10 +279,11 @@ class HomePage:
                 }}
                 .modal-content {{
                     background-color: white;
-                    margin: 10% auto;
-                    padding: 20px;
+                    margin: 6% auto;
+                    padding: 16px;
                     border-radius: 8px;
-                    width: 600px;
+                    width: 92vw;
+                    max-width: 600px;
                     box-shadow: 0 4px 12px rgba(0,0,0,0.3);
                 }}
                 .modal-header {{
@@ -323,13 +324,32 @@ class HomePage:
                 }}
                 table.modal-table th, table.modal-table td {{
                     border: 1px solid #eee;
-                    padding: 8px;
+                    padding: 6px;
                     font-size: 13px;
                     text-align: left;
                 }}
                 table.modal-table th {{
                     background: #f7f7f7;
                     color: #555;
+                }}
+
+                @media (max-width: 720px) {{
+                    body {{ padding: 10px; }}
+                    .chart-container {{ gap: 12px; }}
+                    .chart-box {{ padding: 12px; }}
+                    .chart-title {{ font-size: 15px; margin-bottom: 10px; }}
+                    .data-grid {{ gap: 8px; margin-bottom: 10px; }}
+                    .data-card {{ padding: 10px; }}
+                    .data-value {{ font-size: 20px; }}
+                    table.modal-table th, table.modal-table td {{ font-size: 12px; padding: 5px; }}
+                }}
+
+                @media (max-height: 560px) {{
+                    body {{ padding: 8px; }}
+                    .chart-container {{ gap: 10px; }}
+                    .chart-box {{ padding: 10px; }}
+                    .chart-title {{ font-size: 14px; margin-bottom: 8px; }}
+                    .update-time {{ margin-top: 4px; }}
                 }}
             </style>
         </head>
@@ -449,36 +469,56 @@ class HomePage:
             "}"
         )
 
-        bar = (
-            Bar(init_opts=opts.InitOpts(width="100%", height="360px", theme=ThemeType.LIGHT))
-            .add_xaxis(labels)
-            .add_yaxis(
-                "重量(t)", 
-                weights, 
-                category_gap="40%", 
-                yaxis_index=0,
-                itemstyle_opts=opts.ItemStyleOpts(color="#1890ff")
-            )
-            .set_global_opts(
-                tooltip_opts=opts.TooltipOpts(trigger="axis", axis_pointer_type="cross", formatter=tip3),
-                legend_opts=opts.LegendOpts(is_show=True),
-                xaxis_opts=opts.AxisOpts(
-                    name="环号",
-                    name_location="center",
-                    name_gap=30,
-                    axislabel_opts=opts.LabelOpts(font_size=12)
-                ),
-                yaxis_opts=opts.AxisOpts(
-                    name="重量(t)",
-                    name_location="end",
-                    name_gap=15,
-                    axisline_opts=opts.AxisLineOpts(
-                        linestyle_opts=opts.LineStyleOpts(color="#1890ff")
-                    ),
-                    axislabel_opts=opts.LabelOpts(formatter=axis2),
-                )
-            )
+        bar = Bar(init_opts=opts.InitOpts(width="100%", height="260px", theme=ThemeType.LIGHT))
+        bar.add_xaxis(labels)
+        bar.add_yaxis(
+            "重量(t)",
+            weights,
+            category_gap="40%",
+            yaxis_index=0,
+            itemstyle_opts=opts.ItemStyleOpts(color="#1890ff"),
         )
+
+        grid = None
+        grid_candidates = (
+            dict(pos_left="6%", pos_right="4%", pos_top="14%", pos_bottom="14%", contain_label=True),
+            dict(pos_left="6%", pos_right="4%", pos_top="14%", pos_bottom="14%", is_contain_label=True),
+            dict(pos_left="6%", pos_right="4%", pos_top="14%", pos_bottom="14%"),
+            dict(left="6%", right="4%", top="14%", bottom="14%", contain_label=True),
+            dict(left="6%", right="4%", top="14%", bottom="14%", is_contain_label=True),
+            dict(left="6%", right="4%", top="14%", bottom="14%"),
+        )
+        for kw in grid_candidates:
+            try:
+                grid = opts.GridOpts(**kw)
+                break
+            except TypeError:
+                grid = None
+
+        kwargs = dict(
+            tooltip_opts=opts.TooltipOpts(trigger="axis", axis_pointer_type="cross", formatter=tip3),
+            legend_opts=opts.LegendOpts(is_show=True),
+            xaxis_opts=opts.AxisOpts(
+                name="环号",
+                name_location="center",
+                name_gap=22,
+                axislabel_opts=opts.LabelOpts(font_size=11),
+            ),
+            yaxis_opts=opts.AxisOpts(
+                name="重量(t)",
+                name_location="end",
+                name_gap=15,
+                axisline_opts=opts.AxisLineOpts(linestyle_opts=opts.LineStyleOpts(color="#1890ff")),
+                axislabel_opts=opts.LabelOpts(formatter=axis2),
+            ),
+        )
+        if grid is not None:
+            try:
+                bar.set_global_opts(grid_opts=grid, **kwargs)
+                return bar.render_embed()
+            except TypeError:
+                pass
+        bar.set_global_opts(**kwargs)
         return bar.render_embed()
 
     def _clean_embed(self, embed_html: str) -> str:

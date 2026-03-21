@@ -18,7 +18,7 @@ Copyright (c) 2026 by ${git_name_email}, All Rights Reserved.
 import os
 import sys
 import shutil
-import PyInstaller.__main__
+import subprocess
 
 def clean_build_folders():
     """清理旧的构建文件夹"""
@@ -46,10 +46,13 @@ def build_exe():
     
     print("开始打包Windows exe文件...")
     
-    # 运行PyInstaller
-    PyInstaller.__main__.run(pyinstaller_args)
+    try:
+        import PyInstaller.__main__  # type: ignore
+        PyInstaller.__main__.run(pyinstaller_args)
+    except Exception:
+        subprocess.check_call([sys.executable, "-m", "PyInstaller"] + pyinstaller_args)
 
-    print("打包完成！exe文件位于 dist/plc_monitor.exe")
+    print("打包完成！exe文件位于 dist/plc_monitor/plc_monitor.exe")
     print("注意：此exe文件需要在Windows系统上运行")
 
 if __name__ == '__main__':
