@@ -76,8 +76,8 @@ class BaseUI(QMainWindow):
     def create_left_sidebar(self):
         """创建左侧导航栏"""
         self.left_sidebar = QWidget()
-        self.left_sidebar.setFixedWidth(120)
-        self.left_sidebar.setMaximumWidth(120)
+        self.left_sidebar.setFixedWidth(140)
+        self.left_sidebar.setMaximumWidth(140)
         self.left_layout = QVBoxLayout(self.left_sidebar)
         self.left_layout.setContentsMargins(0, 0, 0, 0)
         self.left_layout.setSpacing(0)
@@ -144,11 +144,6 @@ class BaseUI(QMainWindow):
         info_layout.setContentsMargins(12, 12, 12, 12)
         
         self.time_label = QLabel()
-        self.ip_label = QLabel()
-        
-        # 获取IP地址
-        ip_address = self.get_ip_address()
-        self.ip_label.setText(f"IP: {ip_address}")
         
         label_style = """
             color: rgba(255, 255, 255, 0.45);
@@ -156,10 +151,8 @@ class BaseUI(QMainWindow):
             margin-top: 5px;
         """
         self.time_label.setStyleSheet(label_style)
-        self.ip_label.setStyleSheet(label_style)
         
         info_layout.addWidget(self.time_label)
-        info_layout.addWidget(self.ip_label)
         
         self.left_layout.addWidget(info_widget)
         self.modbus_btn.setVisible(False)

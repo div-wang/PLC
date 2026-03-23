@@ -452,7 +452,9 @@ class HomePage:
         axis2 = JsCode(
             "function (value) {"
             "  if (value === null || value === undefined || value === '') { return ''; }"
-            "  return Number(value).toFixed(2);"
+            "  var n = Number(value);"
+            "  if (isNaN(n)) { return value; }"
+            "  return String(Math.round(n));"
             "}"
         )
         tip3 = JsCode(
@@ -462,10 +464,22 @@ class HomePage:
             "  params.forEach(function(p){"
             "    var v = p.data;"
             "    if (v === null || v === undefined || v === '') { v = '-'; }"
-            "    else { v = Number(v).toFixed(3); }"
+            "    else {"
+            "      var n = Number(v);"
+            "      v = isNaN(n) ? v : String(Math.round(n));"
+            "    }"
             "    s += p.marker + p.seriesName + ': ' + v + '<br/>';"
             "  });"
             "  return s;"
+            "}"
+        )
+        label3 = JsCode(
+            "function (p) {"
+            "  var v = p && p.value;"
+            "  if (v === null || v === undefined || v === '') { return ''; }"
+            "  var n = Number(v);"
+            "  if (isNaN(n)) { return v; }"
+            "  return String(Math.round(n));"
             "}"
         )
 
@@ -477,6 +491,7 @@ class HomePage:
             category_gap="40%",
             yaxis_index=0,
             itemstyle_opts=opts.ItemStyleOpts(color="#1890ff"),
+            label_opts=opts.LabelOpts(is_show=True, formatter=label3),
         )
 
         grid = None

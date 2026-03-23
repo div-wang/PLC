@@ -28,6 +28,7 @@ from PyQt5.QtWidgets import (
     QLineEdit,
     QPushButton,
     QAbstractItemView,
+    QMessageBox,
     QSpinBox,
     QTableWidget,
     QTableWidgetItem,
@@ -575,6 +576,7 @@ class ModbusPage:
         self._last_total_weight: Optional[float] = None
         self._travel_total: float = 0.0
         self._baseline_travel_total: Optional[float] = None
+        self._active_pid: str = _active_project_id()
         self._last_poll_at: float = 0.0
         self._last_sample_at: float = 0.0
         self._poll_timer = QTimer()
@@ -693,6 +695,21 @@ class ModbusPage:
 
     def get_page(self) -> QWidget:
         return self.page
+
+    def _show_warning(self, text: str) -> None:
+        msg = str(text or "")
+        parent = self.page if isinstance(getattr(self, "page", None), QWidget) else None
+
+        def _do():
+            try:
+                QMessageBox.warning(parent, "提示", msg)
+            except Exception as e:
+                try:
+                    self._log(f"提示框显示失败: {e}")
+                except Exception:
+                    pass
+
+        QTimer.singleShot(0, _do)
 
     def set_user_role(self, user_role: str) -> None:
         self._user_role = str(user_role or "user").strip() or "user"
@@ -880,10 +897,17 @@ class ModbusPage:
         self._refresh_ring_table()
 
     def _on_next_ring(self) -> None:
+        if self._client is None or not self._client.is_connected():
+            self._show_warning("Modbus未连接，无法切换下一环。")
+            self._log("下一环失败: Modbus未连接")
+            return
         if self._last_total_weight is None:
+            self._show_warning("尚未读取到总重量，无法切换下一环。")
+            self._log("下一环失败: 尚未读取到总重量")
             return
         pid = _active_project_id()
         records = self._ring_records_for_current_project()
+        current_total = float(self._last_total_weight)
         if records:
             last = records[-1]
             last_ring = int(last.get("ring_no") or 0)
@@ -892,13 +916,21 @@ class ModbusPage:
             ring_no = last_ring + 1
         else:
             ring_no = 1
-            prev_total = float(self._baseline_total_weight) if self._baseline_total_weight is not None else float(self._last_total_weight)
-            prev_travel_total = float(self._baseline_travel_total) if self._baseline_travel_total is not None else float(self._travel_total)
+            if float(current_total) <= 1.0:
+                self._show_warning("当前总重量必须大于 1t，才可以切换下一环。")
+                self._log("下一环失败: 总重量<=1t")
+                return
+            prev_total = 0.0
+            prev_travel_total = 0.0
 
-        current_total = float(self._last_total_weight)
         weight = current_total - float(prev_total)
         travel = float(self._travel_total) - float(prev_travel_total)
         ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        if float(weight) <= 1.0:
+            self._show_warning("当前总重量-上一环总重量≤1t，不可以切换下一环。")
+            self._log("下一环失败: 总重量差值<=1")
+            return
 
         rec = {
             "project_id": pid,
@@ -1080,9 +1112,12 @@ class ModbusPage:
             self._set_values(None, None, None, None, self._total_weight_display_unit())
             return
 
+        flow = self._read_float32(50)
+        load_raw = self._read_float32(52)
+        speed = self._read_float32(54)
         total_int = self._read_uint32(20)
 
-        if total_int is None:
+        if flow is None or load_raw is None or speed is None or total_int is None:
             detail = self._last_io_error.strip()
             self._log("读取数据失败" if not detail else f"读取数据失败: {detail}")
             self._disconnect()
@@ -1090,10 +1125,6 @@ class ModbusPage:
             if not self._auto_connecting:
                 self.start_auto_connect(max_attempts=5, interval_ms=2000)
             return
-
-        flow = self._read_float32(50)
-        load_raw = self._read_float32(52)
-        speed = self._read_float32(54)
 
         now_mono = time.monotonic()
         if self._last_poll_at > 0:
@@ -1107,37 +1138,35 @@ class ModbusPage:
                     self._travel_total += v_speed * dt
         self._last_poll_at = now_mono
 
-        load: Optional[float] = None
-        if isinstance(load_raw, (int, float)):
-            load = float(load_raw)
-            try:
-                load = (load + float(self._settings.get("load_offset", 0.0))) * (1.0 if int(self._settings.get("load_sign", 1)) >= 0 else -1.0)
-            except Exception:
-                pass
-            if bool(self._settings.get("load_clamp_zero", False)) and load < 0:
-                load = 0.0
+        load = float(load_raw)
+        try:
+            load = (load + float(self._settings.get("load_offset", 0.0))) * (1.0 if int(self._settings.get("load_sign", 1)) >= 0 else -1.0)
+        except Exception:
+            pass
+        if bool(self._settings.get("load_clamp_zero", False)) and load < 0:
+            load = 0.0
 
-            if load_raw < 0:
-                now = time.monotonic()
-                if self._last_load_diag_at <= 0 or (now - self._last_load_diag_at) >= 30.0:
-                    self._last_load_diag_at = now
-                    regs = self._read_regs(52, 2)
-                    if regs is not None and len(regs) == 2:
-                        r0, r1 = int(regs[0]) & 0xFFFF, int(regs[1]) & 0xFFFF
-                        candidates: List[str] = []
-                        for bo in ("ABCD", "BADC", "CDAB", "DCBA"):
-                            try:
-                                v = float(decode_float32((r0, r1), byte_order=bo))
-                                if math.isnan(v) or math.isinf(v):
-                                    continue
-                                candidates.append(f"{bo}={v:.6g}")
-                            except Exception:
+        if load_raw < 0:
+            now = time.monotonic()
+            if self._last_load_diag_at <= 0 or (now - self._last_load_diag_at) >= 30.0:
+                self._last_load_diag_at = now
+                regs = self._read_regs(52, 2)
+                if regs is not None and len(regs) == 2:
+                    r0, r1 = int(regs[0]) & 0xFFFF, int(regs[1]) & 0xFFFF
+                    candidates: List[str] = []
+                    for bo in ("ABCD", "BADC", "CDAB", "DCBA"):
+                        try:
+                            v = float(decode_float32((r0, r1), byte_order=bo))
+                            if math.isnan(v) or math.isinf(v):
                                 continue
-                        bo_now = str(self._settings.get("byte_order") or "ABCD").upper()
-                        msg = f"载荷为负，原始寄存器[52..53]=[0x{r0:04X},0x{r1:04X}]，当前字节序={bo_now}"
-                        if candidates:
-                            msg += "，候选解析: " + ", ".join(candidates)
-                        self._log(msg)
+                            candidates.append(f"{bo}={v:.6g}")
+                        except Exception:
+                            continue
+                    bo_now = str(self._settings.get("byte_order") or "ABCD").upper()
+                    msg = f"载荷为负，原始寄存器[52..53]=[0x{r0:04X},0x{r1:04X}]，当前字节序={bo_now}"
+                    if candidates:
+                        msg += "，候选解析: " + ", ".join(candidates)
+                    self._log(msg)
 
         total_weight = float(total_int) / 1000.0
         total_unit = "t"
@@ -1148,11 +1177,20 @@ class ModbusPage:
         scale = max(0.0, float(scale))
         total_weight = float(total_weight) * scale
         self._last_total_weight = float(total_weight)
+        pid = _active_project_id()
+        if str(pid) != str(getattr(self, "_active_pid", "")):
+            self._active_pid = str(pid)
+            self._baseline_total_weight = float(total_weight)
+            self._baseline_travel_total = float(self._travel_total)
+            try:
+                self._ring_page = 1
+                self._refresh_ring_table()
+            except Exception:
+                pass
         if self._baseline_total_weight is None:
             self._baseline_total_weight = float(total_weight)
         if self._baseline_travel_total is None:
             self._baseline_travel_total = float(self._travel_total)
-        self._last_io_error = ""
         self._set_values(flow, load, speed, total_weight, total_unit)
         self._emit_status("connected")
 
@@ -1162,9 +1200,9 @@ class ModbusPage:
                 {
                     "project_id": _active_project_id(),
                     "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                    "flow": float(flow) if isinstance(flow, (int, float)) else None,
-                    "load": float(load) if isinstance(load, (int, float)) else None,
-                    "speed": float(speed) if isinstance(speed, (int, float)) else None,
+                    "flow": float(flow),
+                    "load": float(load),
+                    "speed": float(speed),
                     "total_weight": float(total_weight),
                     "total_weight_unit": str(total_unit),
                     "travel_total": float(self._travel_total),
@@ -1184,9 +1222,9 @@ class ModbusPage:
                 rec = {
                     "project_id": _active_project_id(),
                     "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                    "flow": float(flow) if isinstance(flow, (int, float)) else None,
-                    "load": float(load) if isinstance(load, (int, float)) else None,
-                    "speed": float(speed) if isinstance(speed, (int, float)) else None,
+                    "flow": float(flow),
+                    "load": float(load),
+                    "speed": float(speed),
                     "total_weight": float(total_weight),
                     "total_weight_unit": str(total_unit),
                     "travel_total": float(self._travel_total),
