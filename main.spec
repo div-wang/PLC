@@ -86,9 +86,9 @@ pyz = PYZ(a.pure)
 exe = EXE(
     pyz,
     a.scripts,
-    [],
-    [],
-    [],
+    a.binaries,
+    a.zipfiles,
+    a.datas,
     name='plc_monitor',
     debug=False,
     bootloader_ignore_signals=False,
@@ -103,18 +103,7 @@ exe = EXE(
     codesign_identity=None,
     entitlements_file=None,
     icon=['logo.ico'],
-    exclude_binaries=True,
+    exclude_binaries=False,
     win_private_assemblies=True,
     win_no_prefer_redirects=False,
-)
-
-coll = COLLECT(
-    exe,
-    a.binaries,
-    a.zipfiles,
-    a.datas,
-    strip=False,
-    upx=False,
-    upx_exclude=[],
-    name='plc_monitor',
 )

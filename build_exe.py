@@ -19,13 +19,33 @@ import os
 import sys
 import shutil
 import subprocess
+import re
+from datetime import datetime
 
 def clean_build_folders():
     """清理旧的构建文件夹"""
-    folders_to_clean = ['build', 'dist']
+    folders_to_clean = ['build']
     for folder in folders_to_clean:
         if os.path.exists(folder):
             shutil.rmtree(folder)
+
+def _next_versioned_exe_path(dist_dir: str, base_name: str) -> str:
+    date_str = datetime.now().strftime("%Y%m%d")
+    pattern = re.compile(rf"^{re.escape(base_name)}_{date_str}_(\d{{3}})\.exe$", re.IGNORECASE)
+    max_seq = 0
+    try:
+        for name in os.listdir(dist_dir):
+            m = pattern.match(name)
+            if not m:
+                continue
+            try:
+                max_seq = max(max_seq, int(m.group(1)))
+            except Exception:
+                continue
+    except FileNotFoundError:
+        os.makedirs(dist_dir, exist_ok=True)
+    next_seq = max_seq + 1
+    return os.path.join(dist_dir, f"{base_name}_{date_str}_{next_seq:03d}.exe")
 
 def build_exe():
     """使用PyInstaller打包应用程序为Windows exe文件"""
@@ -52,7 +72,14 @@ def build_exe():
     except Exception:
         subprocess.check_call([sys.executable, "-m", "PyInstaller"] + pyinstaller_args)
 
-    print("打包完成！exe文件位于 dist/plc_monitor/plc_monitor.exe")
+    dist_dir = os.path.join(base_dir, "dist")
+    src_exe = os.path.join(dist_dir, "plc_monitor.exe")
+    dst_exe = _next_versioned_exe_path(dist_dir, "plc_monitor")
+    if not os.path.exists(src_exe):
+        raise FileNotFoundError(f"未找到打包产物：{src_exe}")
+    os.replace(src_exe, dst_exe)
+
+    print(f"打包完成！exe文件位于 {os.path.relpath(dst_exe, base_dir)}")
     print("注意：此exe文件需要在Windows系统上运行")
 
 if __name__ == '__main__':
