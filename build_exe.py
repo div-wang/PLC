@@ -1,3 +1,4 @@
+
 '''
 Author: Div gh110827@gmail.com
 Date: 2025-10-20 23:32:14
@@ -20,6 +21,7 @@ import sys
 import shutil
 import subprocess
 import re
+import json
 from datetime import datetime
 
 def clean_build_folders():
@@ -29,23 +31,36 @@ def clean_build_folders():
         if os.path.exists(folder):
             shutil.rmtree(folder)
 
-def _next_versioned_exe_path(dist_dir: str, base_name: str) -> str:
-    date_str = datetime.now().strftime("%Y%m%d")
-    pattern = re.compile(rf"^{re.escape(base_name)}_{date_str}_(\d{{3}})\.exe$", re.IGNORECASE)
-    max_seq = 0
+def update_version_json():
+    """更新version.json的版本号为当前时间"""
+    version_file = "version.json"
+    now = datetime.now()
+    version_str = now.strftime("%y.%m.%d%H%M")
+    
     try:
-        for name in os.listdir(dist_dir):
-            m = pattern.match(name)
-            if not m:
-                continue
-            try:
-                max_seq = max(max_seq, int(m.group(1)))
-            except Exception:
-                continue
-    except FileNotFoundError:
-        os.makedirs(dist_dir, exist_ok=True)
-    next_seq = max_seq + 1
-    return os.path.join(dist_dir, f"{base_name}_{date_str}_{next_seq:03d}.exe")
+        if os.path.exists(version_file):
+            with open(version_file, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        else:
+            data = {}
+        
+        data["version"] = version_str
+        data["updated_at"] = now.strftime("%Y-%m-%d %H:%M:%S")
+        
+        with open(version_file, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+        
+        print(f"已更新版本号为: {version_str}")
+        return version_str
+    except Exception as e:
+        print(f"更新version.json失败: {e}")
+        return None
+
+def get_versioned_exe_path(dist_dir: str, base_name: str) -> str:
+    """生成带时间戳的exe文件名：plc_monitor.yy.mm.ddHHMM.exe"""
+    now = datetime.now()
+    date_str = now.strftime("%y.%m.%d%H%M")
+    return os.path.join(dist_dir, f"{base_name}.{date_str}.exe")
 
 def build_exe():
     """使用PyInstaller打包应用程序为Windows exe文件"""
@@ -55,28 +70,33 @@ def build_exe():
     # 清理旧的构建文件
     clean_build_folders()
     
+    # 更新version.json版本号
+    update_version_json()
+    
     # PyInstaller参数 - 针对Windows exe（需在Windows系统上运行）
     pyinstaller_args = [
         os.path.join(base_dir, 'main.spec'),
-        '--distpath=dist',  # 指定输出目录
-        '--workpath=build',  # 指定工作目录
-        '--clean',  # 清理临时文件
-        '--noconfirm',  # 不询问确认
+        '--distpath=dist',
+        '--workpath=build',
+        '--clean',
+        '--noconfirm',
     ]
     
     print("开始打包Windows exe文件...")
     
     try:
-        import PyInstaller.__main__  # type: ignore
+        import PyInstaller.__main__
         PyInstaller.__main__.run(pyinstaller_args)
     except Exception:
         subprocess.check_call([sys.executable, "-m", "PyInstaller"] + pyinstaller_args)
 
     dist_dir = os.path.join(base_dir, "dist")
     src_exe = os.path.join(dist_dir, "plc_monitor.exe")
-    dst_exe = _next_versioned_exe_path(dist_dir, "plc_monitor")
+    dst_exe = get_versioned_exe_path(dist_dir, "plc_monitor")
+    
     if not os.path.exists(src_exe):
         raise FileNotFoundError(f"未找到打包产物：{src_exe}")
+    
     os.replace(src_exe, dst_exe)
 
     print(f"打包完成！exe文件位于 {os.path.relpath(dst_exe, base_dir)}")
@@ -88,3 +108,4 @@ if __name__ == '__main__':
     except Exception as e:
         print(f"打包过程中出现错误：{str(e)}")
         sys.exit(1)
+

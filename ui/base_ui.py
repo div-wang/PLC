@@ -25,9 +25,7 @@ class BaseUI(QMainWindow):
         self._auth = None
         self._login_handler = None
         self._user_role = ""
-        self._modbus_status_state = "connecting"
         self._home_shown_handler = None
-        self._next_ring_handler = None
         self.initUI()
         
     def initUI(self):
@@ -174,23 +172,6 @@ class BaseUI(QMainWindow):
         self.page_title = QLabel("主页")
         self.page_title.setStyleSheet("font-size: 18px; font-weight: bold; color: #333;")
         header_layout.addWidget(self.page_title)
-        header_layout.addStretch(1)
-
-        self.modbus_status = QLabel("连接中")
-        self.modbus_status.setFixedHeight(28)
-        self.modbus_status.setStyleSheet("background: #f3f4f6; color: #6b7280; border-radius: 14px; padding: 0 12px;")
-        header_layout.addWidget(self.modbus_status)
-
-        self.next_ring_btn = QPushButton("下一环")
-        self.next_ring_btn.setCursor(Qt.PointingHandCursor)
-        self.next_ring_btn.setVisible(False)
-        self.next_ring_btn.setStyleSheet(
-            "QPushButton { background: #52c41a; color: white; border: none; border-radius: 14px; padding: 0 14px; height: 28px; }"
-            "QPushButton:hover { background: #73d13d; }"
-            "QPushButton:disabled { background: #b7eb8f; color: rgba(255,255,255,0.85); }"
-        )
-        self.next_ring_btn.clicked.connect(self._on_next_ring_clicked)
-        header_layout.addWidget(self.next_ring_btn)
         
         self.right_layout.addWidget(header)
         
@@ -227,39 +208,6 @@ class BaseUI(QMainWindow):
     def set_home_shown_handler(self, handler):
         self._home_shown_handler = handler
 
-    def set_next_ring_handler(self, handler):
-        self._next_ring_handler = handler
-
-    def _on_next_ring_clicked(self):
-        try:
-            if callable(self._next_ring_handler):
-                self._next_ring_handler()
-        except Exception:
-            pass
-
-    def modbus_status_state(self) -> str:
-        return str(self._modbus_status_state or "")
-
-    def set_modbus_status(self, status: str):
-        s = str(status or "")
-        self._modbus_status_state = s
-        if s == "connected":
-            self.modbus_status.setText("已连接")
-            self.modbus_status.setToolTip("")
-            self.modbus_status.setStyleSheet("background: #f6ffed; color: #389e0d; border-radius: 14px; padding: 0 12px;")
-            self.next_ring_btn.setEnabled(True)
-            return
-        if s == "failed":
-            self.modbus_status.setText("未连接")
-            self.modbus_status.setToolTip("连接超时，请联系技术及时处理。")
-            self.modbus_status.setStyleSheet("background: #fff1f0; color: #cf1322; border-radius: 14px; padding: 0 12px;")
-            self.next_ring_btn.setEnabled(False)
-            return
-        self.modbus_status.setText("连接中")
-        self.modbus_status.setToolTip("")
-        self.modbus_status.setStyleSheet("background: #f3f4f6; color: #6b7280; border-radius: 14px; padding: 0 12px;")
-        self.next_ring_btn.setEnabled(False)
-
     def set_login_handler(self, handler):
         self._login_handler = handler
 
@@ -289,7 +237,7 @@ class BaseUI(QMainWindow):
         self.middle_section.setCurrentIndex(int(idx))
         self.page_title.setText(str(title))
         self.update_btn_style(active_btn)
-        self.next_ring_btn.setVisible(name == "home")
+
     
     def update_btn_style(self, active_btn):
         """更新按钮样式"""

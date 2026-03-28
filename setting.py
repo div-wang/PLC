@@ -1,3 +1,4 @@
+
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
@@ -12,11 +13,12 @@ import codecs
 import zipfile
 from datetime import datetime, timedelta
 from PyQt5.QtWebEngineWidgets import QWebEngineView
-from PyQt5.QtCore import QUrl, QSettings, QObject, pyqtSlot
+from PyQt5.QtCore import QUrl, QSettings, QObject, pyqtSlot, pyqtSignal
 from PyQt5.QtWebChannel import QWebChannel
 from PyQt5.QtWidgets import QFileDialog, QMessageBox
 
 import app_storage
+from auto_update import AutoUpdater, UpdateChecker, UpdateDownloader
 
 
 def _deep_merge(base, override):
@@ -52,7 +54,19 @@ class SettingPage:
         self.channel = QWebChannel(self.page.page())
         self.channel.registerObject('bridge', self.bridge)
         self.page.page().setWebChannel(self.channel)
+        
+        self.updater = AutoUpdater()
+        self._checker = None
+        self._downloader = None
+        self._update_data = None
+        
         self.generate_setting_page()
+        
+        self.bridge.load_version_info_requested.connect(self._on_load_version_info)
+        self.bridge.check_update_requested.connect(self._on_check_update)
+        self.bridge.check_update_on_load_requested.connect(self._on_check_update_on_load)
+        self.bridge.download_update_requested.connect(self._on_download_update)
+        self.bridge.install_update_requested.connect(self._on_install_update)
     
     def get_page(self):
         """获取页面组件"""
@@ -76,274 +90,128 @@ class SettingPage:
         """生成设置页面内容"""
         settings = self.load_settings()
         
-        # 构建HTML页面
-        html_content = """
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <meta charset="UTF-8">
-            <title>系统设置</title>
-            <script src="qrc:///qtwebchannel/qwebchannel.js"></script>
-            <style>
-                body {
-                    font-family: Arial, sans-serif;
-                    margin: 0;
-                    padding: 20px;
-                    background-color: #f9f9f9;
-                }
-                .settings-container {
-                    background-color: white;
-                    border-radius: 5px;
-                    box-shadow: 0 2px 5px rgba(0,0,0,0.1);
-                    padding: 20px;
-                }
-                .setting-group {
-                    margin-bottom: 30px;
-                }
-                .setting-group-title {
-                    font-size: 18px;
-                    font-weight: bold;
-                    color: #333;
-                    margin-bottom: 15px;
-                    padding-bottom: 10px;
-                    border-bottom: 1px solid #eee;
-                }
-                .setting-item {
-                    display: flex;
-                    justify-content: space-between;
-                    align-items: center;
-                    padding: 12px 0;
-                    border-bottom: 1px solid #f5f5f5;
-                }
-                .setting-item:last-child {
-                    border-bottom: none;
-                }
-                .setting-label {
-                    font-weight: 500;
-                    color: #333;
-                }
-                .setting-desc {
-                    color: #999;
-                    font-size: 13px;
-                    margin-top: 3px;
-                }
-                .setting-control {
-                    width: 200px;
-                    margin-right: 10px;
-                    text-align: right;
-                }
-                
-                .setting-control input,
-                .setting-control select {
-                    width: 100%;
-                    box-sizing: border-box;
-                }
-                input[type="text"], input[type="number"], input[type="password"], select {
-                    width: 100%;
-                    padding: 8px 10px;
-                    border: 1px solid #d9d9d9;
-                    border-radius: 4px;
-                    font-size: 14px;
-                    height: 34px;
-                    box-sizing: border-box;
-                }
-                .toggle-switch {
-                    position: relative;
-                    display: inline-block;
-                    width: 50px;
-                    height: 24px;
-                }
-                .toggle-switch input {
-                    opacity: 0;
-                    width: 0;
-                    height: 0;
-                }
-                .slider {
-                    position: absolute;
-                    cursor: pointer;
-                    top: 0;
-                    left: 0;
-                    right: 0;
-                    bottom: 0;
-                    background-color: #ccc;
-                    transition: .4s;
-                    border-radius: 24px;
-                }
-                .slider:before {
-                    position: absolute;
-                    content: "";
-                    height: 16px;
-                    width: 16px;
-                    left: 4px;
-                    bottom: 4px;
-                    background-color: white;
-                    transition: .4s;
-                    border-radius: 50%;
-                }
-                input:checked + .slider {
-                    background-color: #1890ff;
-                }
-                input:checked + .slider:before {
-                    transform: translateX(26px);
-                }
-                .save-btn {
-                    background-color: #1890ff;
-                    color: white;
-                    border: none;
-                    padding: 10px 20px;
-                    border-radius: 4px;
-                    cursor: pointer;
-                    font-size: 14px;
-                    margin-top: 20px;
-                    float: right;
-                }
-                .save-btn:hover {
-                    background-color: #40a9ff;
-                }
-                .logout-btn {
-                    background-color: #ef4444;
-                    color: white;
-                    border: none;
-                    padding: 10px 20px;
-                    border-radius: 4px;
-                    cursor: pointer;
-                    font-size: 14px;
-                    margin-top: 20px;
-                    float: left;
-                }
-                .logout-btn:hover {
-                    background-color: #dc2626;
-                }
-                .export-btn {
-                    background-color: #10b981;
-                    color: white;
-                    border: none;
-                    padding: 10px 20px;
-                    border-radius: 4px;
-                    cursor: pointer;
-                    font-size: 14px;
-                    margin-top: 20px;
-                    margin-left: 10px;
-                    float: left;
-                }
-                .export-btn:hover {
-                    background-color: #059669;
-                }
-            </style>
-        </head>
-        <body>
+        setting_html_path = app_storage.resource_file_path("ui/setting_page.html")
+        if os.path.exists(setting_html_path):
+            with open(setting_html_path, "r", encoding="utf-8") as f:
+                html_content = f.read()
             
-            <div class="settings-container">
-                <div class="setting-group">
-                    <div class="setting-group-title">应用设置</div>
-                    
-                    <div class="setting-item">
-
-                        <div>
-                            <div class="setting-label">主题</div>
-                            <div class="setting-desc">选择应用主题</div>
-                        </div>
-                        <div class="setting-control">
-                            <select id="themeSelect">
-                                <option value="浅色">浅色</option>
-                                <option value="深色">深色</option>
-                                <option value="系统默认">系统默认</option>
-                            </select>
-                        </div>
-                    </div>
-                    
-                    <div class="setting-item">
-                        <div>
-                            <div class="setting-label">数据刷新间隔(秒)</div>
-                            <div class="setting-desc">数据自动刷新间隔</div>
-                        </div>
-                        <div class="setting-control">
-                            <input type="number" id="refreshInterval" value="__REFRESH_INTERVAL__">
-                        </div>
-                    </div>
-                    
-                    <div class="setting-item">
-                        <div>
-                            <div class="setting-label">自动保存日志</div>
-                            <div class="setting-desc">自动保存系统日志</div>
-                        </div>
-                        <div class="setting-control">
-                            <label class="toggle-switch">
-                                <input type="checkbox" id="autoSaveLogs" __AUTO_SAVE_LOGS__>
-                                <span class="slider"></span>
-                            </label>
-                        </div>
-                    </div>
-                    
-                    <div class="setting-item">
-                        <div>
-                            <div class="setting-label">启用通知</div>
-                            <div class="setting-desc">启用系统通知</div>
-                        </div>
-                        <div class="setting-control">
-                            <label class="toggle-switch">
-                                <input type="checkbox" id="enableNotifications" __ENABLE_NOTIFICATIONS__>
-                                <span class="slider"></span>
-                            </label>
-                        </div>
-                    </div>
-                </div>
-                
-                <button class="logout-btn" id="logoutBtn">退出登录</button>
-                <button class="export-btn" id="exportLogsBtn">导出日志</button>
-                <button class="save-btn" id="saveSettingsBtn">保存设置</button>
-                <div style="clear: both;"></div>
-            </div>
-            <script>
-            document.addEventListener('DOMContentLoaded', function(){
-                // Set theme selection
-                var themeSelect = document.getElementById('themeSelect');
-                themeSelect.value = "__THEME__";
-
-                new QWebChannel(qt.webChannelTransport, function(channel){
-                    window.bridge = channel.objects.bridge;
-                    var saveBtn = document.getElementById('saveSettingsBtn');
-                    saveBtn.addEventListener('click', function(){
-                        var theme = document.getElementById('themeSelect').value;
-                        var refreshInterval = parseInt(document.getElementById('refreshInterval').value);
-                        var autoSaveLogs = document.getElementById('autoSaveLogs').checked;
-                        var enableNotifications = document.getElementById('enableNotifications').checked;
-
-                        bridge.saveSettings(theme, refreshInterval, autoSaveLogs, enableNotifications);
-                        alert('设置已保存');
-                    });
-
-                    var logoutBtn = document.getElementById('logoutBtn');
-                    logoutBtn.addEventListener('click', function(){
-                        bridge.logout();
-                    });
-
-                    var exportBtn = document.getElementById('exportLogsBtn');
-                    exportBtn.addEventListener('click', function(){
-                        bridge.exportLogs();
-                    });
-                });
-            });
-            </script>
-        </body>
-        </html>
-        """
+            html_content = html_content.replace('themeSelect.value = "浅色";', f'themeSelect.value = "{settings["theme"]}";')
+            html_content = html_content.replace('id="refreshInterval" value="5"', f'id="refreshInterval" value="{settings["refresh_interval"]}"')
+            html_content = html_content.replace('id="autoSaveLogs" >', f'id="autoSaveLogs" {"checked" if settings["auto_save_logs"] else ""}>')
+            html_content = html_content.replace('id="enableNotifications" >', f'id="enableNotifications" {"checked" if settings["enable_notifications"] else ""}>')
+            
+            version = self.updater.current_version
+            
+            html_content = html_content.replace('<span id="currentVersion">1.0.0</span>', f'<span id="currentVersion">{version}</span>')
+            html_content = html_content.replace('PLC监控系统 - 版本 1.0.0', f'PLC监控系统 - 版本 {version}')
+            
+            temp_html_path = os.path.join(app_storage.ui_cache_dir(), "setting_page.html")
+            with open(temp_html_path, "w", encoding="utf-8") as f:
+                f.write(html_content)
+            
+            self.page.load(QUrl.fromLocalFile(temp_html_path))
+    
+    def _on_load_version_info(self):
+        """加载版本信息"""
+        version = self.updater.current_version
+        update_url = ""
+        try:
+            setting_file = app_storage.resource_file_path("setting.json")
+            with open(setting_file, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                update_url = data.get("update_url", "")
+        except Exception:
+            pass
+        self.bridge.load_version_info.emit(version, update_url)
+    
+    def _on_check_update_on_load(self):
+        """页面加载时检查更新"""
+        update_url = ""
+        try:
+            setting_file = app_storage.resource_file_path("setting.json")
+            with open(setting_file, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                update_url = data.get("update_url", "")
+        except Exception:
+            pass
         
-        # Inject values
-        html_content = html_content.replace("__THEME__", settings["theme"])
-        html_content = html_content.replace("__REFRESH_INTERVAL__", str(settings["refresh_interval"]))
-        html_content = html_content.replace("__AUTO_SAVE_LOGS__", "checked" if settings["auto_save_logs"] else "")
-        html_content = html_content.replace("__ENABLE_NOTIFICATIONS__", "checked" if settings["enable_notifications"] else "")
+        if update_url:
+            self._on_check_update(update_url)
+    
+    def _on_check_update(self, update_url: str):
+        """检查更新"""
+        self._checker = UpdateChecker(update_url, self.updater.current_version)
+        self._checker.update_available.connect(self._on_update_available)
+        self._checker.no_update.connect(self._on_no_update)
+        self._checker.error_occurred.connect(self._on_update_error)
+        self._checker.start()
+    
+    def _on_update_available(self, data: dict):
+        """发现新版本"""
+        self._update_data = data
+        version = data.get("version", "")
+        download_url = data.get("download_url", "")
+        release_notes = data.get("release_notes", "")
+        self.bridge.update_available.emit(version, download_url, release_notes)
+    
+    def _on_no_update(self):
+        """没有新版本"""
+        self.bridge.no_update_available.emit()
+    
+    def _on_update_error(self, error_msg: str):
+        """更新检查错误"""
+        self.bridge.update_error.emit(error_msg)
+    
+    def _on_download_update(self, download_url: str):
+        """下载更新"""
+        save_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "plc_monitor_update.exe")
+        self._downloader = UpdateDownloader(download_url, save_path)
+        self._downloader.progress.connect(self._on_download_progress)
+        self._downloader.download_finished.connect(self._on_download_finished)
+        self._downloader.download_error.connect(self._on_download_error)
+        self._downloader.start()
+    
+    def _on_download_progress(self, progress: int):
+        """下载进度"""
+        self.bridge.download_progress.emit(progress)
+    
+    def _on_download_finished(self, file_path: str):
+        """下载完成"""
+        self.bridge.download_finished.emit()
+    
+    def _on_download_error(self, error_msg: str):
+        """下载错误"""
+        self.bridge.download_error.emit(error_msg)
+    
+    def _on_install_update(self):
+        """安装更新"""
+        try:
+            new_exe_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "plc_monitor_update.exe")
+            if not os.path.exists(new_exe_path):
+                QMessageBox.warning(None, "更新", "更新文件不存在")
+                return
+            self.updater.install_update(new_exe_path)
+        except Exception as e:
+            QMessageBox.warning(None, "更新", f"更新失败: {e}")
 
-        # 保存HTML到临时文件
-        setting_html_path = os.path.join(app_storage.ui_cache_dir(), "setting_page.html")
-        with open(setting_html_path, "w", encoding="utf-8") as f:
-            f.write(html_content)
-        
-        # 加载HTML到WebView
-        self.page.load(QUrl.fromLocalFile(setting_html_path))
 
 class SettingsBridge(QObject):
+    """设置页面桥接类"""
+    
+    load_version_info_requested = pyqtSignal()
+    check_update_requested = pyqtSignal(str)
+    check_update_on_load_requested = pyqtSignal()
+    download_update_requested = pyqtSignal(str)
+    install_update_requested = pyqtSignal()
+    
+    load_version_info = pyqtSignal(str, str)
+    update_available = pyqtSignal(str, str, str)
+    no_update_available = pyqtSignal()
+    update_error = pyqtSignal(str)
+    download_progress = pyqtSignal(int)
+    download_finished = pyqtSignal()
+    download_error = pyqtSignal(str)
+    
     def __init__(self, on_logout=None):
         super().__init__()
         self._on_logout = on_logout
@@ -403,3 +271,24 @@ class SettingsBridge(QObject):
                 QMessageBox.warning(None, "导出日志", f"导出失败: {e}")
             except Exception:
                 pass
+    
+    @pyqtSlot()
+    def loadVersionInfoRequested(self):
+        self.load_version_info_requested.emit()
+    
+    @pyqtSlot(str)
+    def checkUpdate(self, update_url):
+        self.check_update_requested.emit(update_url)
+    
+    @pyqtSlot()
+    def checkUpdateOnLoad(self):
+        self.check_update_on_load_requested.emit()
+    
+    @pyqtSlot(str)
+    def downloadUpdate(self, download_url):
+        self.download_update_requested.emit(download_url)
+    
+    @pyqtSlot()
+    def installUpdate(self):
+        self.install_update_requested.emit()
+

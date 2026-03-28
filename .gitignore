@@ -11,3 +11,4 @@ Thumbs.db
 __PyCache__/
 build/
 dist/
+.trae/

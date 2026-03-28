@@ -58,6 +58,7 @@ a = Analysis(
         ('ui', 'ui'),
         ('project.json', '.'),
         ('setting.json', '.'),
+        ('version.json', '.'),
     ] + minimalmodbus_datas + serial_datas,
     hiddenimports=[
         'PyQt5',
@@ -77,9 +78,22 @@ a = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=[],
+    excludes=[
+        'tkinter',
+        'matplotlib',
+        'pandas',
+        'numpy',
+        'scipy',
+        'PIL',
+        'pytest',
+        'unittest',
+        'http.server',
+        'xmlrpc',
+        'doctest',
+        'pdb',
+    ],
     noarchive=False,
-    optimize=0,
+    optimize=2,
 )
 pyz = PYZ(a.pure)
 

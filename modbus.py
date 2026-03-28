@@ -24,6 +24,7 @@ from PyQt5.QtWidgets import (
     QFrame,
     QGridLayout,
     QHBoxLayout,
+    QInputDialog,
     QLabel,
     QLineEdit,
     QPushButton,
@@ -397,37 +398,10 @@ def _active_project_id() -> str:
     return "default"
 
 
-def _load_ring_db() -> Dict[str, Any]:
-    raw = app_storage.load_json("ring_records.json", RING_DB_DEFAULT)
-    if not isinstance(raw, dict):
-        raw = dict(RING_DB_DEFAULT)
-    records = raw.get("records")
-    if not isinstance(records, list):
-        records = []
-    return {"records": list(records)}
 
 
-def _save_ring_db(db: Dict[str, Any]) -> Optional[str]:
-    payload = {"records": list(db.get("records") or [])}
-    return app_storage.save_json("ring_records.json", payload)
 
 
-MODBUS_SAMPLES_DB_DEFAULT: Dict[str, Any] = {"records": []}
-
-
-def _load_modbus_samples_db() -> Dict[str, Any]:
-    raw = app_storage.load_json("modbus_samples.json", MODBUS_SAMPLES_DB_DEFAULT)
-    if not isinstance(raw, dict):
-        raw = dict(MODBUS_SAMPLES_DB_DEFAULT)
-    records = raw.get("records")
-    if not isinstance(records, list):
-        records = []
-    return {"records": list(records)}
-
-
-def _save_modbus_samples_db(db: Dict[str, Any]) -> Optional[str]:
-    payload = {"records": list(db.get("records") or [])}
-    return app_storage.save_json("modbus_samples.json", payload)
 
 
 class ModbusSettingsDialog(QDialog):
@@ -579,10 +553,15 @@ class ModbusPage:
         self._active_pid: str = _active_project_id()
         self._last_poll_at: float = 0.0
         self._last_sample_at: float = 0.0
+        self._last_ring_save_at: float = 0.0
+        self._current_ring_no: int = 0
+        self._current_ring_weight: Optional[float] = None
         self._poll_timer = QTimer()
         self._poll_timer.setInterval(1000)
         self._poll_timer.timeout.connect(self._poll_once)
         self._status_cb = None
+        self._ring_cb = None
+        self._clear_ring_cb = None
         self._auto_attempts = 0
         self._auto_connecting = False
 
@@ -609,13 +588,33 @@ class ModbusPage:
         )
         self.settings_btn.clicked.connect(self._open_settings)
 
+        self.clear_ring_btn = QPushButton("清空环号数据")
+        self.clear_ring_btn.setCursor(Qt.PointingHandCursor)
+        self.clear_ring_btn.setVisible(self._user_role == "admin")
+        self.clear_ring_btn.setStyleSheet(
+            "QPushButton { background: #fff1f0; color: #cf1322; border: none; border-radius: 8px; padding: 8px 14px; }"
+            "QPushButton:hover { background: #ffccc7; }"
+        )
+        self.clear_ring_btn.clicked.connect(self._on_clear_ring_data)
+
+        self.fix_ring_btn = QPushButton("修正环号")
+        self.fix_ring_btn.setCursor(Qt.PointingHandCursor)
+        self.fix_ring_btn.setVisible(self._user_role == "admin")
+        self.fix_ring_btn.setStyleSheet(
+            "QPushButton { background: #e6f4ff; color: #1677ff; border: none; border-radius: 8px; padding: 8px 14px; }"
+            "QPushButton:hover { background: #bae7ff; }"
+        )
+        self.fix_ring_btn.clicked.connect(self._on_fix_ring_no)
+
         toolbar_layout.addWidget(self.status_label)
         toolbar_layout.addStretch(1)
+        toolbar_layout.addWidget(self.fix_ring_btn)
+        toolbar_layout.addWidget(self.clear_ring_btn)
         toolbar_layout.addWidget(self.settings_btn)
         root.addWidget(toolbar)
 
         self._ring_page = 1
-        self._ring_page_size = 12
+        self._ring_page_size = 10
         ring_frame = QFrame()
         ring_frame.setStyleSheet("QFrame { background: white; border: none; border-radius: 12px; }")
         ring_layout = QVBoxLayout(ring_frame)
@@ -652,8 +651,8 @@ class ModbusPage:
         ring_layout.addLayout(ring_top)
 
         self.ring_table = QTableWidget()
-        self.ring_table.setColumnCount(3)
-        self.ring_table.setHorizontalHeaderLabels(["环号", "重量", "时间"])
+        self.ring_table.setColumnCount(4)
+        self.ring_table.setHorizontalHeaderLabels(["环号", "重量", "总重量", "时间"])
         self.ring_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.ring_table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.ring_table.setSelectionMode(QAbstractItemView.SingleSelection)
@@ -668,12 +667,8 @@ class ModbusPage:
         root.addWidget(ring_frame)
         root.setStretchFactor(ring_frame, 2)
 
-        self._latest_flow: Optional[float] = None
-        self._latest_load: Optional[float] = None
-        self._latest_speed: Optional[float] = None
-        self._latest_total_weight: Optional[float] = None
-        self._latest_total_unit: str = self._total_weight_display_unit()
-        self._set_values(None, None, None, None, self._latest_total_unit)
+        # 移除本地缓存，所有数据实时读取
+        self._set_values(None, None, None, None, self._total_weight_display_unit())
 
         log_frame = QFrame()
         log_frame.setStyleSheet("QFrame { background: white; border: none; border-radius: 12px; }")
@@ -713,15 +708,46 @@ class ModbusPage:
 
     def set_user_role(self, user_role: str) -> None:
         self._user_role = str(user_role or "user").strip() or "user"
+        try:
+            self.clear_ring_btn.setVisible(self._user_role == "admin")
+            self.fix_ring_btn.setVisible(self._user_role == "admin")
+        except Exception:
+            pass
 
     def set_status_callback(self, cb) -> None:
         self._status_cb = cb
+
+    def set_ring_callback(self, cb) -> None:
+        self._ring_cb = cb
+        try:
+            pid = _active_project_id()
+            n = db.max_ring_no(str(pid))
+            if n is not None:
+                self._current_ring_no = int(n)
+                self._emit_ring(int(n))
+            else:
+                self._emit_ring(int(getattr(self, "_current_ring_no", 0) or 0))
+        except Exception:
+            try:
+                self._emit_ring(int(getattr(self, "_current_ring_no", 0) or 0))
+            except Exception:
+                pass
+
+    def set_clear_ring_callback(self, cb) -> None:
+        self._clear_ring_cb = cb
 
     def _emit_status(self, status: str) -> None:
         self._set_status_badge(str(status))
         try:
             if callable(self._status_cb):
                 self._status_cb(str(status))
+        except Exception:
+            pass
+
+    def _emit_ring(self, ring_no: int) -> None:
+        try:
+            if callable(self._ring_cb):
+                self._ring_cb(int(ring_no))
         except Exception:
             pass
 
@@ -740,6 +766,213 @@ class ModbusPage:
 
     def next_ring(self) -> None:
         self._on_next_ring()
+
+    def prev_ring(self) -> None:
+        self._on_prev_ring()
+
+    def _confirm(self, text: str) -> bool:
+        parent = self.page if isinstance(getattr(self, "page", None), QWidget) else None
+        box = QMessageBox(parent)
+        box.setIcon(QMessageBox.Warning)
+        box.setWindowTitle("确认")
+        box.setText(str(text or ""))
+        btn_ok = box.addButton("确认", QMessageBox.AcceptRole)
+        box.addButton("取消", QMessageBox.RejectRole)
+        box.setDefaultButton(btn_ok)
+        box.exec_()
+        try:
+            return box.clickedButton() == btn_ok
+        except Exception:
+            return False
+
+    def _on_prev_ring(self) -> None:
+        if not self._confirm("一旦切换上一环，当前环将被删除"):
+            return
+        pid = _active_project_id()
+        
+        try:
+            records = db.recent_rings(pid, limit=100)
+            if len(records) < 2:
+                self._show_warning("没有上一环，无法切换。")
+                self._log("上一环失败: 环号记录不足")
+                return
+                
+            records.sort(key=lambda x: int(x.get("ring_no") or 0))
+            current_rec = records[-1]
+            prev_rec = records[-2]
+            
+            current_no = int(current_rec.get("ring_no") or 0)
+            prev_no = int(prev_rec.get("ring_no") or 0)
+            
+            def _to_f(v: Any) -> float:
+                try:
+                    return float(v)
+                except Exception:
+                    return 0.0
+
+            merged_prev = dict(prev_rec)
+            merged_prev["weight"] = _to_f(prev_rec.get("weight")) + _to_f(current_rec.get("weight"))
+            merged_prev["travel"] = _to_f(prev_rec.get("travel")) + _to_f(current_rec.get("travel"))
+            merged_prev["total_weight"] = _to_f(current_rec.get("total_weight"))
+            merged_prev["total_travel"] = _to_f(current_rec.get("total_travel"))
+            merged_prev["time"] = str(current_rec.get("time") or merged_prev.get("time") or "")
+
+            db.upsert_ring_detail(
+                project_id=str(pid),
+                ring_no=int(prev_no),
+                weight=float(merged_prev.get("weight") or 0.0),
+                travel=float(merged_prev.get("travel") or 0.0),
+                time_str=str(merged_prev.get("time") or ""),
+                total_weight=float(merged_prev.get("total_weight") or 0.0),
+                total_travel=float(merged_prev.get("total_travel") or 0.0),
+            )
+            db.delete_ring_detail(str(pid), int(current_no))
+            
+            try:
+                n = db.max_ring_no(str(pid))
+                if n is not None:
+                    prev_no = int(n)
+            except Exception:
+                pass
+            self._current_ring_no = int(prev_no)
+            self._current_ring_weight = float(merged_prev.get("weight") or 0.0)
+            self._emit_ring(int(prev_no))
+            self._log(f"上一环: 删除环号={int(current_no)}，并累加到环号={int(prev_no)}")
+            
+            self._refresh_ring_table()
+        except Exception as e:
+            self._show_warning("环号数据异常，无法切换上一环。")
+            self._log(f"上一环失败: {e}")
+
+    def _on_clear_ring_data(self) -> None:
+        if str(getattr(self, "_user_role", "") or "") != "admin":
+            self._show_warning("只有admin用户才能清空环号数据。")
+            self._log("清空环号失败: 非admin用户")
+            return
+        if not self._confirm("确认清空环号数据？清空前会自动备份数据库并重新创建。"):
+            return
+        try:
+            n = int(db.backup_and_recreate_db())
+        except Exception as e:
+            self._show_warning("清空失败：数据库备份/重建失败。")
+            self._log(f"清空环号失败: 数据库备份/重建失败: {e}")
+            return
+
+        # 重置所有状态
+        self._current_ring_no = 0
+        self._current_ring_weight = 0.0
+        self._baseline_total_weight = None
+        self._baseline_travel_total = None
+        self._last_total_weight = None
+        self._travel_total = 0.0
+        self._emit_ring(0)
+        
+        # 触发清空回调，让首页刷新
+        try:
+            if callable(self._clear_ring_cb):
+                self._clear_ring_cb()
+        except Exception:
+            pass
+
+        self._log(f"已清空环号数据: 数据库备份序号 backup{int(n)}")
+        self._show_warning("环号数据已清空。")
+        try:
+            self._ring_page = 1
+            self._refresh_ring_table()
+        except Exception:
+            pass
+
+    def _on_fix_ring_no(self) -> None:
+        if str(getattr(self, "_user_role", "") or "") != "admin":
+            self._show_warning("只有admin用户才能修正环号。")
+            self._log("修正环号失败: 非admin用户")
+            return
+        
+        # 获取当前最大环号
+        try:
+            pid = _active_project_id()
+            current_max = db.max_ring_no(str(pid)) or 0
+        except Exception as e:
+            self._show_warning(f"获取当前环号失败: {e}")
+            self._log(f"修正环号失败: 获取当前环号失败: {e}")
+            return
+        
+        # 弹出输入框
+        target_no, ok = QInputDialog.getInt(
+            self.page, 
+            "修正环号", 
+            f"当前最大环号: {current_max}\n请输入目标环号（必须大于{current_max}）:",
+            min=current_max + 1,
+            max=99999
+        )
+        if not ok:
+            return
+        
+        # 确认操作
+        if not self._confirm(f"确认修正环号到{target_no}环？\n将自动补全{current_max+1}到{target_no}共{target_no - current_max}条记录，重量为0。"):
+            return
+        
+        try:
+            pid = _active_project_id()
+            # 优先使用仪表读到的总重量，读不到则使用数据库最后一环的总重量
+            current_total_weight = None
+            state = app_storage.load_json("modbus_state.json", {})
+            if isinstance(state, dict):
+                current_total_weight = state.get("device_total_weight")
+            
+            if current_total_weight is None:
+                try:
+                    last_ring = db.max_ring_no(str(pid))
+                    if last_ring is not None and last_ring > 0:
+                        ring_detail = db.get_ring_detail(str(pid), last_ring)
+                        if ring_detail and isinstance(ring_detail, dict):
+                            current_total_weight = ring_detail.get("total_weight") or 0.0
+                            self._log(f"仪表未连接，使用最后一环({last_ring}环)总重量: {current_total_weight}")
+                    else:
+                        current_total_weight = 0.0
+                except Exception as e:
+                    self._log(f"读取最后一环总重量失败: {e}，默认使用0")
+                    current_total_weight = 0.0
+            current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            
+            # 批量插入补全的环号
+            with db._connect() as conn:
+                for ring_no in range(current_max + 1, target_no + 1):
+                    conn.execute(
+                        """
+                        INSERT INTO ring_detail(
+                            project_id, ring_no, weight, travel, time, 
+                            total_weight, total_travel
+                        ) VALUES (?, ?, 0, 0, ?, ?, 0)
+                        """,
+                        (str(pid), ring_no, current_time, current_total_weight)
+                    )
+                conn.commit()
+            
+            # 更新当前环号状态
+            self._current_ring_no = target_no
+            self._emit_ring(target_no)
+            self._log(f"已修正环号到{target_no}环，补全{target_no - current_max}条记录")
+            self._show_warning(f"环号已修正到{target_no}环。")
+            
+            # 刷新环号表格
+            try:
+                self._ring_page = 1
+                self._refresh_ring_table()
+            except Exception:
+                pass
+            
+            # 触发回调刷新首页
+            try:
+                if callable(self._clear_ring_cb):
+                    self._clear_ring_cb()
+            except Exception:
+                pass
+                
+        except Exception as e:
+            self._show_warning(f"修正环号失败: {e}")
+            self._log(f"修正环号失败: {e}")
+            return
 
     def start_auto_connect(self, max_attempts: int = 3, interval_ms: int = 500) -> None:
         if self._auto_connecting:
@@ -773,44 +1006,6 @@ class ModbusPage:
     def _total_weight_display_unit(self) -> str:
         return "t"
 
-    def _make_card(self, title: str, unit: str) -> Dict[str, Any]:
-        frame = QFrame()
-        frame.setFrameShape(QFrame.StyledPanel)
-        frame.setMinimumHeight(150)
-        frame.setStyleSheet("QFrame { background: white; border: none; border-radius: 12px; }")
-
-        layout = QVBoxLayout(frame)
-        layout.setContentsMargins(16, 14, 16, 14)
-        layout.setSpacing(10)
-
-        top = QHBoxLayout()
-        top.setContentsMargins(0, 0, 0, 0)
-        top.setSpacing(8)
-
-        title_label = QLabel(title)
-        title_label.setStyleSheet("color: #6b7280; font-size: 16px; font-weight: 600;")
-
-        unit_label = QLabel(unit)
-        unit_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        unit_label.setStyleSheet("color: #9ca3af; font-size: 14px;")
-
-        top.addWidget(title_label)
-        top.addStretch(1)
-        top.addWidget(unit_label)
-
-        value_label = QLabel("--")
-        value_font = QFont()
-        value_font.setPointSize(28)
-        value_font.setBold(True)
-        value_label.setFont(value_font)
-        value_label.setStyleSheet("color: #333;")
-
-        layout.addLayout(top)
-        layout.addWidget(value_label)
-        layout.addStretch(1)
-
-        return {"frame": frame, "title": title_label, "value": value_label, "unit": unit_label}
-
     def _log(self, msg: str) -> None:
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         line = f"[{now}] {msg}"
@@ -829,36 +1024,33 @@ class ModbusPage:
 
     def _ring_records_for_current_project(self) -> List[Dict[str, Any]]:
         pid = _active_project_id()
-        ring_db = _load_ring_db()
-        records = ring_db.get("records") or []
-        filtered: List[Dict[str, Any]] = []
-        for r in records:
-            if not isinstance(r, dict):
-                continue
-            if str(r.get("project_id") or "") != pid:
-                continue
-            filtered.append(dict(r))
-        filtered.sort(key=lambda x: int(x.get("ring_no") or 0))
-        return filtered
+        try:
+            from db import recent_rings
+            records = recent_rings(pid, limit=1000)
+            records.sort(key=lambda x: int(x.get("ring_no") or 0), reverse=True)
+            return records
+        except Exception:
+            return []
 
     def _refresh_ring_table(self) -> None:
-        rows = self._ring_records_for_current_project()
-        total = len(rows)
-        size = max(1, int(getattr(self, "_ring_page_size", 12)))
-        total_pages = max(1, (total + size - 1) // size)
-        self._ring_page = max(1, min(int(getattr(self, "_ring_page", 1)), total_pages))
-
-        start = (self._ring_page - 1) * size
-        page_rows = rows[start : start + size]
-
         try:
+            rows = self._ring_records_for_current_project()
+            total = len(rows)
+            size = max(1, int(getattr(self, "_ring_page_size", 12)))
+            total_pages = max(1, (total + size - 1) // size)
+            self._ring_page = max(1, min(int(getattr(self, "_ring_page", 1)), total_pages))
+
+            start = (self._ring_page - 1) * size
+            page_rows = rows[start : start + size]
+
             self.ring_table.setRowCount(len(page_rows))
             for i, rec in enumerate(page_rows):
                 ring_no = int(rec.get("ring_no") or 0)
                 weight = rec.get("weight")
+                total_weight = rec.get("total_weight")
                 ts = str(rec.get("time") or "")
 
-                item0 = QTableWidgetItem(str(ring_no) if ring_no > 0 else "")
+                item0 = QTableWidgetItem(str(ring_no) if ring_no >= 0 else "")
                 item0.setTextAlignment(Qt.AlignCenter)
                 self.ring_table.setItem(i, 0, item0)
 
@@ -872,16 +1064,23 @@ class ModbusPage:
                 item1.setTextAlignment(Qt.AlignCenter)
                 self.ring_table.setItem(i, 1, item1)
 
-                item2 = QTableWidgetItem(ts)
+                twtxt = ""
+                try:
+                    if isinstance(total_weight, (int, float)):
+                        twtxt = f"{float(total_weight):.3f}"
+                except Exception:
+                    twtxt = ""
+                item2 = QTableWidgetItem(twtxt)
                 item2.setTextAlignment(Qt.AlignCenter)
                 self.ring_table.setItem(i, 2, item2)
 
+                item3 = QTableWidgetItem(ts)
+                item3.setTextAlignment(Qt.AlignCenter)
+                self.ring_table.setItem(i, 3, item3)
+
             self.ring_table.setColumnWidth(0, 90)
             self.ring_table.setColumnWidth(1, 140)
-        except Exception:
-            pass
-
-        try:
+            self.ring_table.setColumnWidth(2, 140)
             self.ring_page_label.setText(f"第 {self._ring_page}/{total_pages} 页（{total} 条）")
             self.ring_prev_btn.setEnabled(self._ring_page > 1)
             self.ring_next_btn.setEnabled(self._ring_page < total_pages)
@@ -896,6 +1095,18 @@ class ModbusPage:
         self._ring_page = int(getattr(self, "_ring_page", 1)) + 1
         self._refresh_ring_table()
 
+
+
+    def _refresh_interval_s(self) -> int:
+        root = app_storage.load_json("setting.json", {})
+        if not isinstance(root, dict):
+            root = {}
+        try:
+            sec = int(root.get("refresh_interval", 5))
+        except Exception:
+            sec = 5
+        return max(1, int(sec))
+
     def _on_next_ring(self) -> None:
         if self._client is None or not self._client.is_connected():
             self._show_warning("Modbus未连接，无法切换下一环。")
@@ -906,69 +1117,64 @@ class ModbusPage:
             self._log("下一环失败: 尚未读取到总重量")
             return
         pid = _active_project_id()
-        records = self._ring_records_for_current_project()
+        current_no = int(getattr(self, "_current_ring_no", 0))
         current_total = float(self._last_total_weight)
-        if records:
-            last = records[-1]
-            last_ring = int(last.get("ring_no") or 0)
-            prev_total = float(last.get("total_weight") or 0.0)
-            prev_travel_total = float(last.get("total_travel") or 0.0)
-            ring_no = last_ring + 1
-        else:
-            ring_no = 1
-            if float(current_total) <= 1.0:
-                self._show_warning("当前总重量必须大于 1t，才可以切换下一环。")
-                self._log("下一环失败: 总重量<=1t")
-                return
-            prev_total = 0.0
-            prev_travel_total = 0.0
-
-        weight = current_total - float(prev_total)
-        travel = float(self._travel_total) - float(prev_travel_total)
-        ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-        if float(weight) <= 1.0:
-            self._show_warning("当前总重量-上一环总重量≤1t，不可以切换下一环。")
-            self._log("下一环失败: 总重量差值<=1")
+        current_ring_weight = float(getattr(self, "_current_ring_weight", 0.0) or 0.0)
+        if current_ring_weight <= 1.0:
+            self._show_warning("当前环重量≤1t，不可以切换下一环。")
+            self._log("下一环失败: 当前环重量<=1t")
             return
 
-        rec = {
-            "project_id": pid,
-            "ring_no": int(ring_no),
-            "weight": float(weight),
-            "travel": float(travel),
-            "time": ts,
-            "total_weight": float(current_total),
-            "total_travel": float(self._travel_total),
-        }
-
-        ring_db = _load_ring_db()
-        ring_rows = ring_db.get("records")
-        if not isinstance(ring_rows, list):
-            ring_rows = []
-        ring_rows.append(rec)
-        ring_db["records"] = ring_rows
-        _save_ring_db(ring_db)
+        prev_travel_total = 0.0
+        if int(current_no) > 0:
+            try:
+                prev = db.get_ring_detail(str(pid), int(current_no) - 1)
+                if isinstance(prev, dict):
+                    prev_travel_total = float(prev.get("total_travel") or 0.0)
+            except Exception:
+                prev_travel_total = 0.0
+        current_ring_travel = float(self._travel_total) - float(prev_travel_total)
+        ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         try:
             db.upsert_ring_detail(
                 project_id=str(pid),
-                ring_no=int(ring_no),
-                weight=float(weight),
-                travel=float(travel),
+                ring_no=int(current_no),
+                weight=float(current_ring_weight),
+                travel=float(current_ring_travel),
                 time_str=str(ts),
                 total_weight=float(current_total),
                 total_travel=float(self._travel_total),
             )
         except Exception:
             pass
-        self._log(f"下一环: 环号={int(ring_no)}, 重量={float(weight):g}, 行程={float(travel):g}, 总重量={float(current_total):.3f}")
+
+        new_no = int(current_no) + 1
+        ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         try:
-            total = len(self._ring_records_for_current_project())
-            size = max(1, int(getattr(self, "_ring_page_size", 12)))
-            self._ring_page = max(1, (total + size - 1) // size)
-            self._refresh_ring_table()
+            db.upsert_ring_detail(
+                project_id=str(pid),
+                ring_no=int(new_no),
+                weight=0.0,
+                travel=0.0,
+                time_str=str(ts),
+                total_weight=float(current_total),
+                total_travel=float(self._travel_total),
+            )
         except Exception:
             pass
+
+        try:
+            n = db.max_ring_no(str(pid))
+            if n is not None:
+                new_no = int(n)
+        except Exception:
+            pass
+        self._current_ring_no = int(new_no)
+        self._current_ring_weight = 0.0
+        self._emit_ring(int(new_no))
+        self._log(f"下一环: 新建环号={int(new_no)}")
+        
+        self._refresh_ring_table()
 
     def _set_connected_ui(self, connected: bool) -> None:
         self._set_status_badge("connected" if connected else "failed")
@@ -1000,6 +1206,22 @@ class ModbusPage:
             self._last_poll_at = 0.0
             self._last_sample_at = 0.0
             self._set_connected_ui(True)
+            # 强制读取数据库最后一环号
+            try:
+                pid = _active_project_id()
+                n = db.max_ring_no(str(pid))
+                if n is not None:
+                    self._current_ring_no = int(n)
+                    self._emit_ring(int(n))
+                    self._log(f"读取数据库最后一环号: {int(n)}")
+                else:
+                    self._current_ring_no = 0
+                    self._emit_ring(0)
+                    self._log("数据库无环号记录，默认使用0环")
+            except Exception as e:
+                self._log(f"读取数据库环号失败: {e}，默认使用0环")
+                self._current_ring_no = 1
+                self._emit_ring(1)
             self._poll_timer.start()
             self._poll_once()
             if self._client is None or not self._client.is_connected():
@@ -1027,6 +1249,27 @@ class ModbusPage:
         self._last_poll_at = 0.0
         self._last_sample_at = 0.0
         self._set_connected_ui(False)
+        # 断开连接时清空缓存的状态数据
+        try:
+            app_storage.save_json(
+                "modbus_state.json",
+                {
+                    "project_id": _active_project_id(),
+                    "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    "flow": None,
+                    "flow_unit": "t/h",
+                    "load": None,
+                    "speed": None,
+                    "speed_unit": "m/s",
+                    "total_weight": None,
+                    "total_weight_unit": self._total_weight_display_unit(),
+                    "travel_total": 0.0,
+                    "ring_no": self._current_ring_no,
+                    "device_total_weight": None,
+                },
+            )
+        except Exception:
+            pass
 
     def _toggle_connect(self) -> None:
         if self._client is not None and self._client.is_connected():
@@ -1042,7 +1285,6 @@ class ModbusPage:
         if dlg.exec_() != QDialog.Accepted:
             return
         self._settings = dlg.settings()
-        self._latest_total_unit = "t"
         if self._client is not None and self._client.is_connected():
             self._connect()
 
@@ -1100,13 +1342,37 @@ class ModbusPage:
         total_weight: Optional[float],
         total_weight_unit: str,
     ) -> None:
-        self._latest_flow = float(flow) if isinstance(flow, (int, float)) else None
-        self._latest_load = float(load) if isinstance(load, (int, float)) else None
-        self._latest_speed = float(speed) if isinstance(speed, (int, float)) else None
-        self._latest_total_weight = float(total_weight) if isinstance(total_weight, (int, float)) else None
-        self._latest_total_unit = str(total_weight_unit or self._total_weight_display_unit())
+        # 直接保存到状态文件，不做本地缓存
+        try:
+            app_storage.save_json(
+                "modbus_state.json",
+                {
+                    "project_id": _active_project_id(),
+                    "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    "flow": float(flow) if isinstance(flow, (int, float)) else None,
+                    "flow_unit": str(total_weight_unit or "t/h"),
+                    "load": float(load) if isinstance(load, (int, float)) else None,
+                    "speed": float(speed) if isinstance(speed, (int, float)) else None,
+                    "speed_unit": "m/s",
+                    "total_weight": float(total_weight) if isinstance(total_weight, (int, float)) else None,
+                    "total_weight_unit": str(total_weight_unit or "t"),
+                    "ring_no": db.max_ring_no(str(_active_project_id())) or 0,
+                },
+            )
+        except Exception:
+            pass
 
     def _poll_once(self) -> None:
+        pid = _active_project_id()
+        try:
+            current_ring_no = db.max_ring_no(str(pid))
+            if current_ring_no is None:
+                current_ring_no = 0
+            self._current_ring_no = int(current_ring_no)
+            self._emit_ring(int(current_ring_no))
+        except Exception:
+            pass
+
         if self._client is None or not self._client.is_connected():
             self._disconnect()
             self._set_values(None, None, None, None, self._total_weight_display_unit())
@@ -1115,9 +1381,11 @@ class ModbusPage:
         flow = self._read_float32(50)
         load_raw = self._read_float32(52)
         speed = self._read_float32(54)
-        total_int = self._read_uint32(20)
-
-        if flow is None or load_raw is None or speed is None or total_int is None:
+        device_total_weight = self._read_float32(46)
+        flow_unit_code = self._read_float32(34)
+        total_unit_code = self._read_float32(38)
+        
+        if flow is None or load_raw is None or speed is None or device_total_weight is None:
             detail = self._last_io_error.strip()
             self._log("读取数据失败" if not detail else f"读取数据失败: {detail}")
             self._disconnect()
@@ -1168,13 +1436,30 @@ class ModbusPage:
                         msg += "，候选解析: " + ", ".join(candidates)
                     self._log(msg)
 
-        total_weight = float(total_int) / 1000.0
+        flow_unit = "t/h"
+        try:
+            if isinstance(flow_unit_code, (int, float)) and int(round(float(flow_unit_code))) == 1:
+                flow_unit = "kg/h"
+        except Exception:
+            flow_unit = "t/h"
+
         total_unit = "t"
+        try:
+            if isinstance(total_unit_code, (int, float)) and int(round(float(total_unit_code))) == 1:
+                total_unit = "kg"
+        except Exception:
+            total_unit = "t"
+
+        total_weight = float(device_total_weight)
         try:
             scale = float(self._settings.get("scale", 1.0))
         except Exception:
             scale = 1.0
         scale = max(0.0, float(scale))
+        try:
+            flow = float(flow) * float(scale)
+        except Exception:
+            pass
         total_weight = float(total_weight) * scale
         self._last_total_weight = float(total_weight)
         pid = _active_project_id()
@@ -1191,7 +1476,69 @@ class ModbusPage:
             self._baseline_total_weight = float(total_weight)
         if self._baseline_travel_total is None:
             self._baseline_travel_total = float(self._travel_total)
-        self._set_values(flow, load, speed, total_weight, total_unit)
+        current_ring_no = None
+        has_ring0 = False
+        try:
+            has_ring0 = db.get_ring_detail(str(pid), 0) is not None
+        except Exception:
+            has_ring0 = False
+        if not has_ring0:
+            ts0 = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            try:
+                db.upsert_ring_detail(
+                    project_id=str(pid),
+                    ring_no=0,
+                    weight=0.0,
+                    travel=0.0,
+                    time_str=str(ts0),
+                    total_weight=0.0,
+                    total_travel=0.0,
+                )
+            except Exception:
+                pass
+        try:
+            current_ring_no = db.max_ring_no(str(pid))
+        except Exception:
+            current_ring_no = None
+        if current_ring_no is None:
+            current_ring_no = 0
+
+        prev_sum_weight = 0.0
+        prev_travel_total = 0.0
+        if int(current_ring_no) > 0:
+            try:
+                prev = db.get_ring_detail(str(pid), int(current_ring_no) - 1)
+                if isinstance(prev, dict):
+                    prev_travel_total = float(prev.get("total_travel") or 0.0)
+            except Exception:
+                prev_travel_total = 0.0
+            try:
+                prev_sum_weight = float(db.sum_ring_weight_before(str(pid), int(current_ring_no)))
+            except Exception:
+                prev_sum_weight = 0.0
+        else:
+            try:
+                k = f"ring0_baseline_total_weight::{str(pid)}"
+                v = db.meta_get(k)
+                if v is None:
+                    db.meta_set(k, str(float(total_weight)))
+                    prev_sum_weight = float(total_weight)
+                else:
+                    prev_sum_weight = float(v)
+            except Exception:
+                prev_sum_weight = float(total_weight)
+
+        ring_weight = float(total_weight) - float(prev_sum_weight)
+        ring_travel = float(self._travel_total) - float(prev_travel_total)
+        if ring_weight < 0:
+            ring_weight = 0.0
+        if ring_travel < 0:
+            ring_travel = 0.0
+        self._current_ring_no = int(current_ring_no)
+        self._current_ring_weight = float(ring_weight)
+        self._emit_ring(int(current_ring_no))
+
+        self._set_values(flow, load, speed, ring_weight, total_unit)
         self._emit_status("connected")
 
         try:
@@ -1201,40 +1548,35 @@ class ModbusPage:
                     "project_id": _active_project_id(),
                     "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                     "flow": float(flow),
+                    "flow_unit": str(flow_unit),
                     "load": float(load),
                     "speed": float(speed),
-                    "total_weight": float(total_weight),
+                    "speed_unit": "m/s",
+                    "total_weight": float(ring_weight),
                     "total_weight_unit": str(total_unit),
                     "travel_total": float(self._travel_total),
+                    "ring_no": int(current_ring_no),
+                    "device_total_weight": float(total_weight),
                 },
             )
         except Exception:
             pass
 
-        try:
-            interval_s = int(self._settings.get("sample_save_interval_s", 0))
-        except Exception:
-            interval_s = 0
-        interval_s = max(0, int(interval_s))
-        if interval_s > 0:
-            if self._last_sample_at <= 0 or (now_mono - self._last_sample_at) >= float(interval_s):
-                self._last_sample_at = now_mono
-                rec = {
-                    "project_id": _active_project_id(),
-                    "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                    "flow": float(flow),
-                    "load": float(load),
-                    "speed": float(speed),
-                    "total_weight": float(total_weight),
-                    "total_weight_unit": str(total_unit),
-                    "travel_total": float(self._travel_total),
-                }
-                db = _load_modbus_samples_db()
-                rows = db.get("records")
-                if not isinstance(rows, list):
-                    rows = []
-                rows.append(rec)
-                if len(rows) > 20000:
-                    rows = rows[-20000:]
-                db["records"] = rows
-                _save_modbus_samples_db(db)
+        ring_save_s = int(self._refresh_interval_s())
+        if self._last_ring_save_at <= 0 or (now_mono - self._last_ring_save_at) >= float(ring_save_s):
+            self._last_ring_save_at = now_mono
+            ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            try:
+                db.upsert_ring_detail(
+                    project_id=str(pid),
+                    ring_no=int(current_ring_no),
+                    weight=float(ring_weight),
+                    travel=float(ring_travel),
+                    time_str=str(ts),
+                    total_weight=float(total_weight),
+                    total_travel=float(self._travel_total),
+                )
+            except Exception:
+                pass
+
+

@@ -116,10 +116,87 @@
                     cursor: pointer;
                     font-size: 14px;
                     margin-top: 20px;
-                    float: right;
+                    /* float: right; */
                 }
                 .save-btn:hover {
                     background-color: #40a9ff;
+                }
+                .update-now-btn {
+                    background-color: #faad14;
+                    color: white;
+                    border: none;
+                    padding: 10px 20px;
+                    border-radius: 4px;
+                    cursor: pointer;
+                    font-size: 14px;
+                    margin-top: 20px;
+                    margin-right: 10px;
+                    /* float: right; */
+                    display: none;
+                }
+                .update-now-btn:hover {
+                    background-color: #ffc53d;
+                }
+                .update-now-btn:disabled {
+                    background-color: #d9d9d9;
+                    cursor: not-allowed;
+                }
+                .logout-btn {
+                    background-color: #ef4444;
+                    color: white;
+                    border: none;
+                    padding: 10px 20px;
+                    border-radius: 4px;
+                    cursor: pointer;
+                    font-size: 14px;
+                    margin-top: 20px;
+                    /* float: left; */
+                }
+                .logout-btn:hover {
+                    background-color: #dc2626;
+                }
+                .export-btn {
+                    background-color: #10b981;
+                    color: white;
+                    border: none;
+                    padding: 10px 20px;
+                    border-radius: 4px;
+                    cursor: pointer;
+                    font-size: 14px;
+                    margin-top: 20px;
+                    margin-left: 10px;
+                    /* float: left; */
+                }
+                .export-btn:hover {
+                    background-color: #059669;
+                }
+                .button-row {
+                    clear: both;
+                    margin-top: 10px;
+                }
+                .version-info {
+                    color: #666;
+                    font-size: 13px;
+                    margin-top: 15px;
+                    padding-top: 15px;
+                    border-top: 1px solid #eee;
+                }
+                .update-progress {
+                    margin-top: 10px;
+                    display: none;
+                }
+                .progress-bar {
+                    width: 100%;
+                    height: 8px;
+                    background-color: #f0f0f0;
+                    border-radius: 4px;
+                    overflow: hidden;
+                }
+                .progress-fill {
+                    height: 100%;
+                    background-color: #52c41a;
+                    width: 0%;
+                    transition: width 0.3s;
                 }
             </style>
         </head>
@@ -179,20 +256,63 @@
                             </label>
                         </div>
                     </div>
+                    
+                    <div class="button-row">
+                        <button class="save-btn" id="saveSettingsBtn">保存设置</button>
+                    </div>
                 </div>
                 
-                <button class="save-btn" id="saveSettingsBtn">保存设置</button>
-                <div style="clear: both;"></div>
+                <div class="setting-group">
+                    <div class="setting-group-title">版本信息</div>
+                    
+                    <div class="setting-item">
+                        <div>
+                            <div class="setting-label">当前版本</div>
+                            <div class="setting-desc">软件当前版本号</div>
+                        </div>
+                        <div class="setting-control" style="text-align: right;">
+                            <span id="currentVersion">1.0.0</span>
+                        </div>
+                    </div>
+                    
+                    <div class="update-progress" id="updateProgress">
+                        <div class="progress-bar">
+                            <div class="progress-fill" id="progressFill"></div>
+                        </div>
+                        <div style="text-align: center; margin-top: 5px; font-size: 13px; color: #666;" id="progressText">0%</div>
+                    </div>
+                    
+                    <div class="button-row">
+                        <button class="update-now-btn" id="updateNowBtn">立即更新</button>
+                    </div>
+                </div>
+                
+                <div class="setting-group" style="margin: 20px 0;border-top: 1px solid #eee;">
+                    <div class="button-row">
+                        <button class="logout-btn" id="logoutBtn">退出登录</button>
+                        <button class="export-btn" id="exportLogsBtn">导出日志</button>
+                    </div>
+                </div>
+                
+                <!-- <div class="version-info" id="versionInfo">
+                    PLC监控系统 - 版本 1.0.0
+                </div> -->
             </div>
             <script>
+            var updateData = null;
+            
             document.addEventListener('DOMContentLoaded', function(){
-                // Set theme selection
                 var themeSelect = document.getElementById('themeSelect');
                 themeSelect.value = "浅色";
 
                 new QWebChannel(qt.webChannelTransport, function(channel){
                     window.bridge = channel.objects.bridge;
+                    
                     var saveBtn = document.getElementById('saveSettingsBtn');
+                    var updateNowBtn = document.getElementById('updateNowBtn');
+                    var logoutBtn = document.getElementById('logoutBtn');
+                    var exportBtn = document.getElementById('exportLogsBtn');
+                    
                     saveBtn.addEventListener('click', function(){
                         var theme = document.getElementById('themeSelect').value;
                         var refreshInterval = parseInt(document.getElementById('refreshInterval').value);
@@ -202,6 +322,72 @@
                         bridge.saveSettings(theme, refreshInterval, autoSaveLogs, enableNotifications);
                         alert('设置已保存');
                     });
+                    
+                    updateNowBtn.addEventListener('click', function(){
+                        if (updateData) {
+                            updateNowBtn.disabled = true;
+                            updateNowBtn.textContent = '下载中...';
+                            document.getElementById('updateProgress').style.display = 'block';
+                            bridge.downloadUpdate(updateData.download_url);
+                        }
+                    });
+                    
+                    logoutBtn.addEventListener('click', function(){
+                        bridge.logout();
+                    });
+                    
+                    exportBtn.addEventListener('click', function(){
+                        bridge.exportLogs();
+                    });
+                    
+                    bridge.loadVersionInfo.connect(function(version, updateUrl) {
+                        document.getElementById('currentVersion').textContent = version;
+                        document.getElementById('versionInfo').textContent = 'PLC监控系统 - 版本 ' + version;
+                    });
+                    
+                    bridge.updateAvailable.connect(function(version, downloadUrl, releaseNotes) {
+                        updateData = {
+                            version: version,
+                            download_url: downloadUrl,
+                            release_notes: releaseNotes
+                        };
+                        updateNowBtn.style.display = 'block';
+                    });
+                    
+                    bridge.noUpdateAvailable.connect(function() {
+                        updateNowBtn.style.display = 'none';
+                    });
+                    
+                    bridge.updateError.connect(function(errorMsg) {
+                        updateNowBtn.disabled = false;
+                        updateNowBtn.textContent = '立即更新';
+                        document.getElementById('updateProgress').style.display = 'none';
+                    });
+                    
+                    bridge.downloadProgress.connect(function(progress) {
+                        document.getElementById('progressFill').style.width = progress + '%';
+                        document.getElementById('progressText').textContent = progress + '%';
+                    });
+                    
+                    bridge.downloadFinished.connect(function() {
+                        updateNowBtn.disabled = false;
+                        updateNowBtn.textContent = '立即更新';
+                        document.getElementById('updateProgress').style.display = 'none';
+                        var result = confirm('下载完成！是否立即安装更新？');
+                        if (result) {
+                            bridge.installUpdate();
+                        }
+                    });
+                    
+                    bridge.downloadError.connect(function(errorMsg) {
+                        updateNowBtn.disabled = false;
+                        updateNowBtn.textContent = '立即更新';
+                        document.getElementById('updateProgress').style.display = 'none';
+                        alert('下载更新失败：' + errorMsg);
+                    });
+                    
+                    bridge.loadVersionInfoRequested();
+                    bridge.checkUpdateOnLoad();
                 });
             });
             </script>

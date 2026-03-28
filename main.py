@@ -25,9 +25,10 @@ from project import ProjectPage
 from plc_link import PLCLinkPage
 from setting import SettingPage
 from modbus import ModbusPage
+import db
 
 
-def _on_logout(main_window: BaseUI, auth: AuthManager, modbus_page: ModbusPage) -> None:
+def _on_logout(main_window: BaseUI, auth: AuthManager, modbus_page: ModbusPage, home_page: HomePage) -> None:
     auth.logout()
     try:
         modbus_page.set_user_role("user")
@@ -37,12 +38,12 @@ def _on_logout(main_window: BaseUI, auth: AuthManager, modbus_page: ModbusPage) 
         main_window.set_user_role("user")
     except Exception:
         pass
-    ok = _ensure_login(main_window, auth, modbus_page)
+    ok = _ensure_login(main_window, auth, modbus_page, home_page)
     if not ok:
         main_window.close()
 
 
-def _on_login_success(main_window: BaseUI, auth: AuthManager, modbus_page: ModbusPage) -> None:
+def _on_login_success(main_window: BaseUI, auth: AuthManager, modbus_page: ModbusPage, home_page: HomePage) -> None:
     try:
         modbus_page.set_user_role(auth.role())
     except Exception:
@@ -61,6 +62,19 @@ def _on_login_success(main_window: BaseUI, auth: AuthManager, modbus_page: Modbu
     except Exception:
         pass
     try:
+        main_window.set_prev_ring_handler(lambda: modbus_page.prev_ring())
+    except Exception:
+        pass
+    try:
+        modbus_page.set_ring_callback(lambda n: main_window.set_current_ring_no(n))
+        modbus_page.set_clear_ring_callback(lambda: home_page.update_data())
+        from modbus import _active_project_id
+        pid = _active_project_id()
+        n = db.max_ring_no(str(pid))
+        main_window.set_current_ring_no(0 if n is None else int(n))
+    except Exception:
+        pass
+    try:
         main_window.set_home_shown_handler(
             lambda: (
                 main_window.set_modbus_status("connecting"),
@@ -74,9 +88,9 @@ def _on_login_success(main_window: BaseUI, auth: AuthManager, modbus_page: Modbu
     main_window.show_home_page()
 
 
-def _ensure_login(main_window: BaseUI, auth: AuthManager, modbus_page: ModbusPage) -> bool:
+def _ensure_login(main_window: BaseUI, auth: AuthManager, modbus_page: ModbusPage, home_page: HomePage) -> bool:
     if auth.restore_session():
-        _on_login_success(main_window, auth, modbus_page)
+        _on_login_success(main_window, auth, modbus_page, home_page)
         return True
 
     mask = QWidget(main_window)
@@ -103,12 +117,21 @@ def _ensure_login(main_window: BaseUI, auth: AuthManager, modbus_page: ModbusPag
         pass
     if not ok:
         return False
-    _on_login_success(main_window, auth, modbus_page)
+    _on_login_success(main_window, auth, modbus_page, home_page)
     return True
 
 
 def main():
     """主函数"""
+    # 单实例运行检测
+    import win32event
+    import win32api
+    from winerror import ERROR_ALREADY_EXISTS
+    mutex = win32event.CreateMutex(None, False, "PLC_Monitor_App_Mutex")
+    if win32api.GetLastError() == ERROR_ALREADY_EXISTS:
+        win32api.MessageBox(0, "程序已经在运行中，请勿重复打开！", "提示", 0x40 | 0x1)
+        return
+
     QApplication.setAttribute(Qt.AA_EnableHighDpiScaling, True)
     QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps, True)
     try:
@@ -121,6 +144,11 @@ def main():
     app = QApplication(sys.argv)
     app.setOrganizationName("PLCApp")
     app.setApplicationName("plc_monitor")
+    try:
+        db.init_db()
+        db.migrate_ring_records_json_if_needed()
+    except Exception:
+        pass
 
     auth = AuthManager()
     
@@ -132,7 +160,7 @@ def main():
     home_page = HomePage()
     project_page = ProjectPage()
     plc_link_page = PLCLinkPage()
-    setting_page = SettingPage(on_logout=lambda: _on_logout(main_window, auth, modbus_page))
+    setting_page = SettingPage(on_logout=lambda: _on_logout(main_window, auth, modbus_page, home_page))
     
     # 添加页面到主窗口
     main_window.add_page(home_page.get_page(), "home")
@@ -141,17 +169,17 @@ def main():
     main_window.add_page(setting_page.get_page(), "setting")
     main_window.add_page(modbus_page.get_page(), "modbus")
 
-    main_window.set_login_handler(lambda: _ensure_login(main_window, auth, modbus_page))
+    main_window.set_login_handler(lambda: _ensure_login(main_window, auth, modbus_page, home_page))
 
     # 显示主窗口
     main_window.show()
 
     if not auth.restore_session():
-        ok = _ensure_login(main_window, auth, modbus_page)
+        ok = _ensure_login(main_window, auth, modbus_page, home_page)
         if not ok:
             sys.exit(0)
     else:
-        _on_login_success(main_window, auth, modbus_page)
+        _on_login_success(main_window, auth, modbus_page, home_page)
     
     # 启动应用
     sys.exit(app.exec_())

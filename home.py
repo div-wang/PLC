@@ -10,7 +10,10 @@ import os
 import re
 import time
 from PyQt5.QtWebEngineWidgets import QWebEngineView
-from PyQt5.QtCore import QUrl, QTimer
+from PyQt5.QtCore import QUrl, QTimer, QObject, pyqtSlot
+from PyQt5.QtWebChannel import QWebChannel
+
+import modbus
 
 from pyecharts.charts import Bar, Line
 from pyecharts import options as opts
@@ -20,17 +23,46 @@ from pyecharts.commons.utils import JsCode
 import app_storage
 import db
 
+class JsBridge(QObject):
+    """JS和Python交互桥接"""
+    def __init__(self, modbus_page):
+        super().__init__()
+        self.modbus_page = modbus_page
+    
+    @pyqtSlot()
+    def prev_ring(self):
+        """上一环操作"""
+        if self.modbus_page:
+            self.modbus_page.prev_ring()
+    
+    @pyqtSlot()
+    def next_ring(self):
+        """下一环操作"""
+        if self.modbus_page:
+            self.modbus_page.next_ring()
+
 class HomePage:
     """主页类，负责生成主页内容和图表"""
     
-    def __init__(self):
+    def __init__(self, modbus_page=None):
         self.page = QWebEngineView()
+        self.modbus_page = modbus_page
+        
+        # 初始化JS桥接
+        self.channel = QWebChannel()
+        self.bridge = JsBridge(modbus_page)
+        self.channel.registerObject("bridge", self.bridge)
+        self.page.page().setWebChannel(self.channel)
+        
         self.summary_data = {
             "实时流量": None,
             "实时载荷": None,
             "实时速度": None,
-            "总重量": None,
-            "总重量单位": "t",
+            "实时流量单位": "t/h",
+            "实时速度单位": "m/s",
+            "当前环号": None,
+            "当前环重量": None,
+            "当前环重量单位": "t",
         }
         self.ring_data = {
             "rings": [],
@@ -61,10 +93,11 @@ class HomePage:
         now_str = time.strftime('%Y-%m-%d %H:%M:%S')
         mac8 = self._get_mac_prefix8()
         flow = self.summary_data.get("实时流量")
-        load = self.summary_data.get("实时载荷")
         speed = self.summary_data.get("实时速度")
-        total_weight = self.summary_data.get("总重量")
-        total_unit = str(self.summary_data.get("总重量单位") or "")
+        flow_unit = str(self.summary_data.get("实时流量单位") or "")
+        speed_unit = str(self.summary_data.get("实时速度单位") or "")
+        total_weight = self.summary_data.get("当前环重量")
+        total_unit = str(self.summary_data.get("当前环重量单位") or "")
         rows = []
         def row(name, dtype, formula_inputs, unit, value):
             return {
@@ -77,10 +110,9 @@ class HomePage:
                 "实时值": value,
                 "数据时间": now_str
             }
-        rows.append(row("实时流量", "float", 0, "t/h", flow if flow is not None else "-"))
-        rows.append(row("实时载荷", "float", 0, "kg/m", load if load is not None else "-"))
-        rows.append(row("实时速度", "float", 0, "m/s", speed if speed is not None else "-"))
-        rows.append(row("总重量", "float", 0, total_unit, f"{float(total_weight):.3f}" if total_weight is not None else "-"))
+        rows.append(row("实时流量", "float", 0, flow_unit, flow if flow is not None else "-"))
+        rows.append(row("实时速度", "float", 0, speed_unit, speed if speed is not None else "-"))
+        rows.append(row("当前环重量", "float", 0, total_unit, f"{float(total_weight):.3f}" if total_weight is not None else "-"))
         return rows
 
     def _load_refresh_interval(self):
@@ -110,29 +142,48 @@ class HomePage:
         flow = state.get("flow")
         load = state.get("load")
         speed = state.get("speed")
+        flow_unit = state.get("flow_unit")
+        speed_unit = state.get("speed_unit")
         total_weight = state.get("total_weight")
+        device_total_weight = state.get("device_total_weight")
         total_unit = str(state.get("total_weight_unit") or "t")
+        pid = str(state.get("project_id") or "").strip() or self._active_project_id()
 
-        self.summary_data["实时流量"] = float(flow) if isinstance(flow, (int, float)) else None
+        # 实时流量单位转换：kg/h转t/h，除以1000
+        self.summary_data["实时流量"] = float(flow) / 1000 if isinstance(flow, (int, float)) else None
         self.summary_data["实时载荷"] = float(load) if isinstance(load, (int, float)) else None
         self.summary_data["实时速度"] = float(speed) if isinstance(speed, (int, float)) else None
-        self.summary_data["总重量"] = float(total_weight) if isinstance(total_weight, (int, float)) else None
-        self.summary_data["总重量单位"] = total_unit
+        self.summary_data["实时流量单位"] = str(flow_unit or "t/h")
+        self.summary_data["实时速度单位"] = str(speed_unit or "m/s")
+        
+        # 实时计算当前环重量：仪表总重量 - 上一环总重量
+        device_total_weight = state.get("device_total_weight")
+        current_ring_weight = None
+        if isinstance(device_total_weight, (int, float)):
+            # 获取当前最大环号
+            current_max_ring = db.max_ring_no(str(pid)) or 0
+            if current_max_ring > 0:
+                # 获取上一环的总重量
+                prev_ring = db.get_ring_detail(str(pid), current_max_ring - 1)
+                if prev_ring and isinstance(prev_ring, dict):
+                    prev_total = prev_ring.get("total_weight")
+                    if isinstance(prev_total, (int, float)):
+                        current_ring_weight = float(device_total_weight) - float(prev_total)
+                        if current_ring_weight < 0:
+                            current_ring_weight = 0.0
+        
+        self.summary_data["当前环重量"] = current_ring_weight
+        self.summary_data["当前环重量单位"] = total_unit
 
-        ring_db = app_storage.load_json("ring_records.json", {"records": []})
-        records = []
-        if isinstance(ring_db, dict) and isinstance(ring_db.get("records"), list):
-            records = [r for r in ring_db.get("records") if isinstance(r, dict)]
-        pid = self._active_project_id()
         try:
             last10 = db.recent_rings(pid, limit=10)
+            self.ring_data["rings"] = [str(int(r.get("ring_no") or 0)) for r in last10]
+            self.ring_data["weights"] = [float(r.get("weight") or 0.0) for r in last10]
+            self.ring_data["travels"] = [float(r.get("travel") or 0.0) for r in last10]
         except Exception:
-            filtered = [r for r in records if str(r.get("project_id") or "") == pid]
-            filtered.sort(key=lambda x: int(x.get("ring_no") or 0))
-            last10 = filtered[-10:]
-        self.ring_data["rings"] = [str(int(r.get("ring_no") or 0)) for r in last10]
-        self.ring_data["weights"] = [float(r.get("weight") or 0.0) for r in last10]
-        self.ring_data["travels"] = [float(r.get("travel") or 0.0) for r in last10]
+            self.ring_data["rings"] = []
+            self.ring_data["weights"] = []
+            self.ring_data["travels"] = []
         
         # 重新生成页面
         self.generate_home_page()
@@ -158,33 +209,57 @@ class HomePage:
         """生成主页内容"""
         # 构建数据卡片HTML
         import json
+        import time
         metrics_rows = self._build_metrics_table()
         metrics_json = json.dumps(metrics_rows, ensure_ascii=False)
+        # 实时获取当前最大环号
+        pid = self._active_project_id()
+        current_ring_no = db.max_ring_no(str(pid)) or 0
+        
         flow = self.summary_data.get("实时流量")
-        load = self.summary_data.get("实时载荷")
         speed = self.summary_data.get("实时速度")
-        total_weight = self.summary_data.get("总重量")
-        total_unit = str(self.summary_data.get("总重量单位") or "t")
-        flow_txt = "--" if flow is None else f"{float(flow):.2f}"
-        load_txt = "--" if load is None else f"{float(load):.2f}"
+        total_weight = self.summary_data.get("当前环重量")
+        total_unit = str(self.summary_data.get("当前环重量单位") or "t")
+        flow_unit = str(self.summary_data.get("实时流量单位") or "")
+        speed_unit = str(self.summary_data.get("实时速度单位") or "")
+        flow_txt = "--" if flow is None else f"{float(flow):.3f}"
         speed_txt = "--" if speed is None else f"{float(speed):.2f}"
-        total_txt = "--" if total_weight is None else f"{float(total_weight):.3f}"
+        
+        if total_weight is None:
+            total_txt = "--"
+        else:
+            w = float(total_weight)
+            total_txt = f"{max(0.0, w):.3f}"
+            
+        # 顶部工具栏，完全按照modbus页面样式
+        button_bar = f"""
+        <div style="background: white; border: none; border-radius: 10px; padding: 14px 14px; margin-bottom: 16px; display: flex; align-items: center; justify-content: space-between;">
+            <div style="background: #f6ffed; color: #389e0d; border: none; border-radius: 8px; padding: 6px 10px; text-align: center; min-width: 110px; font-size: 14px;">
+                当前环号: {current_ring_no}
+            </div>
+            <div style="display: flex; gap: 10px;">
+                <button onclick="prevRing()" style="background: #e6f4ff; color: #1677ff; border: none; border-radius: 8px; padding: 8px 14px; cursor: pointer; font-size: 14px;" onmouseover="this.style.background='#bae7ff'" onmouseout="this.style.background='#e6f4ff'">
+                    上一环
+                </button>
+                <button onclick="nextRing()" style="background: #f0f0f0; color: #333; border: none; border-radius: 8px; padding: 8px 14px; cursor: pointer; font-size: 14px;" onmouseover="this.style.background='#e6f4ff'" onmouseout="this.style.background='#f0f0f0'">
+                    下一环
+                </button>
+            </div>
+        </div>
+        """
+        
         summary_cards = f"""
         <div class="data-grid">
             <div class="data-card" data-key="实时流量">
                 <div class="data-label">实时流量</div>
-                <div class="data-value">{flow_txt} <span class="data-unit">t/h</span></div>
-            </div>
-            <div class="data-card" data-key="实时载荷">
-                <div class="data-label">实时载荷</div>
-                <div class="data-value">{load_txt} <span class="data-unit">kg/m</span></div>
+                <div class="data-value">{flow_txt} <span class="data-unit">{flow_unit}</span></div>
             </div>
             <div class="data-card" data-key="实时速度">
                 <div class="data-label">实时速度</div>
-                <div class="data-value">{speed_txt} <span class="data-unit">m/s</span></div>
+                <div class="data-value">{speed_txt} <span class="data-unit">{speed_unit}</span></div>
             </div>
-            <div class="data-card" data-key="总重量">
-                <div class="data-label">总重量</div>
+            <div class="data-card" data-key="当前环重量">
+                <div class="data-label">当前环重量</div>
                 <div class="data-value">{total_txt} <span class="data-unit">{total_unit}</span></div>
             </div>
         </div>
@@ -200,6 +275,7 @@ class HomePage:
             <meta charset="UTF-8">
             <title>主页</title>
             <script type="text/javascript" src="https://assets.pyecharts.org/assets/v5/echarts.min.js"></script>
+            <script src="qrc:///qtwebchannel/qwebchannel.js"></script>
             <style>
                 body {{
                     font-family: Arial, sans-serif;
@@ -235,7 +311,7 @@ class HomePage:
                 }}
                 .data-grid {{
                     display: grid;
-                    grid-template-columns: repeat(4, 1fr);
+                    grid-template-columns: repeat(3, 1fr);
                     gap: 10px;
                     margin-bottom: 12px;
                 }}
@@ -244,13 +320,6 @@ class HomePage:
                     border-radius: 8px;
                     padding: 12px;
                     text-align: center;
-                    transition: all 0.3s;
-                    cursor: pointer;
-                }}
-                .data-card:hover {{
-                    transform: translateY(-5px);
-                    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-                    background-color: #e6f7ff;
                 }}
                 .data-label {{
                     font-size: 13px;
@@ -266,71 +335,6 @@ class HomePage:
                     font-size: 12px;
                     color: #999;
                     font-weight: normal;
-                }}
-                .modal {{
-                    display: none;
-                    position: fixed;
-                    z-index: 2000;
-                    left: 0;
-                    top: 0;
-                    width: 100%;
-                    height: 100%;
-                    background-color: rgba(0,0,0,0.5);
-                }}
-                .modal-content {{
-                    background-color: white;
-                    margin: 6% auto;
-                    padding: 16px;
-                    border-radius: 8px;
-                    width: 92vw;
-                    max-width: 600px;
-                    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-                }}
-                .modal-header {{
-                    display: flex;
-                    justify-content: space-between;
-                    align-items: center;
-                    margin-bottom: 10px;
-                }}
-                .modal-title {{
-                    font-size: 18px;
-                    font-weight: bold;
-                    color: #333;
-                }}
-                .close-btn {{
-                    border: none;
-                    background: #f0f0f0;
-                    border-radius: 4px;
-                    padding: 6px 10px;
-                    cursor: pointer;
-                }}
-                .detail-grid {{
-                    display: grid;
-                    grid-template-columns: 160px 1fr;
-                    gap: 10px;
-                    align-items: center;
-                }}
-                .detail-label {{
-                    color: #666;
-                    font-weight: 600;
-                }}
-                .detail-value {{
-                    color: #333;
-                }}
-                table.modal-table {{
-                    width: 100%;
-                    border-collapse: collapse;
-                    margin-top: 10px;
-                }}
-                table.modal-table th, table.modal-table td {{
-                    border: 1px solid #eee;
-                    padding: 6px;
-                    font-size: 13px;
-                    text-align: left;
-                }}
-                table.modal-table th {{
-                    background: #f7f7f7;
-                    color: #555;
                 }}
 
                 @media (max-width: 720px) {{
@@ -356,90 +360,51 @@ class HomePage:
         <body>
             
             <div class="chart-container">
+                {button_bar}
                 <div class="chart-box">
                     <div class="chart-title">总数据汇总</div>
                     {summary_cards}
-                    <div class="update-time">最后更新时间: {time.strftime('%Y-%m-%d %H:%M:%S')}</div>
                 </div>
                 <div class="chart-box">
                     <div class="chart-title">环号实时出土数据</div>
                     {ring_chart}
-                    <div class="update-time">最后更新时间: {time.strftime('%Y-%m-%d %H:%M:%S')}</div>
-                </div>
-            </div>
-            
-            <div id="metricModal" class="modal">
-                <div class="modal-content">
-                    <div class="modal-header">
-                        <div class="modal-title" id="modalTitle">PLC数据详情</div>
-                        <button class="close-btn" id="modalClose">关闭</button>
-                    </div>
-                    <table class="modal-table">
-                        <thead>
-                            <tr>
-                                <th>名称</th>
-                                <th>数据地址</th>
-                                <th>数据类型</th>
-                                <th>计算公式</th>
-                                <th>公式输入值</th>
-                                <th>单位</th>
-                                <th>实时值</th>
-                                <th>数据时间</th>
-                            </tr>
-                        </thead>
-                        <tbody id="metricTBody"></tbody>
-                    </table>
                 </div>
             </div>
             
             <script>
-            const METRICS_ROWS = {metrics_json};
-            function populateTable() {{
-                const tbody = document.getElementById('metricTBody');
-                tbody.innerHTML = '';
-                METRICS_ROWS.forEach(r => {{
-                    const tr = document.createElement('tr');
-                    const cols = ['名称','数据地址','数据类型','计算公式','公式输入值','单位','实时值','数据时间'];
-                    cols.forEach(k => {{
-                        const td = document.createElement('td');
-                        td.textContent = (r[k] !== undefined && r[k] !== null) ? String(r[k]) : '-';
-                        tr.appendChild(td);
-                    }});
-                    tbody.appendChild(tr);
+                // 初始化WebChannel
+                var bridge = null;
+                new QWebChannel(qt.webChannelTransport, function(channel) {{
+                    bridge = channel.objects.bridge;
                 }});
-            }}
-            function showMetric() {{
-                populateTable();
-                document.getElementById('metricModal').style.display = 'block';
-            }}
-            function hideMetric() {{
-                document.getElementById('metricModal').style.display = 'none';
-            }}
-            document.addEventListener('DOMContentLoaded', function() {{
-                document.querySelectorAll('.data-card').forEach(function(card) {{
-                    card.addEventListener('click', function() {{
-                        showMetric();
-                    }});
-                }});
-                document.getElementById('modalClose').addEventListener('click', hideMetric);
-                window.addEventListener('click', function(evt) {{
-                    if (evt.target && evt.target.id === 'metricModal') {{
-                        hideMetric();
-                    }}
-                }});
-            }});
+                
+                function prevRing() {{
+                    if (bridge) bridge.prev_ring();
+                }}
+                
+                function nextRing() {{
+                    if (bridge) bridge.next_ring();
+                }}
             </script>
         </body>
         </html>
         """
         
-        # 保存HTML到临时文件
-        home_html_path = os.path.join(app_storage.ui_cache_dir(), "home_page.html")
+        # 保存HTML到临时文件，添加时间戳避免缓存
+        timestamp = int(time.time() * 1000)
+        home_html_path = os.path.join(app_storage.ui_cache_dir(), f"home_page.html")
         with open(home_html_path, "w", encoding="utf-8") as f:
             f.write(html_content)
         
-        # 加载HTML到WebView
-        self.page.load(QUrl.fromLocalFile(home_html_path))
+        # 加载HTML到WebView，添加时间戳查询参数强制刷新
+        url = QUrl.fromLocalFile(home_html_path)
+        url.setQuery(f"t={timestamp}")
+        
+        # 使用 QTimer.singleShot 确保在 GUI 事件循环中加载
+        def load_page():
+            self.page.load(url)
+        
+        QTimer.singleShot(0, load_page)
     
 
     def create_ring_chart(self):

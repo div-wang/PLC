@@ -1,8 +1,9 @@
 {
     "theme": "浅色",
-    "refresh_interval": 5,
-    "auto_save_logs": false,
+    "refresh_interval": 20,
+    "auto_save_logs": true,
     "enable_notifications": false,
+    "update_url": "https://duobian-ai.oss-cn-hangzhou.aliyuncs.com/PLC/update.json",
     "users": [
         {
             "username": "admin",
