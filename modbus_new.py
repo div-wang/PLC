@@ -71,28 +71,28 @@ class _RTUModbusClient:
                 self._inst = i
                 return True, ""
             except Exception as e: return False, str(e)
-    def read_float32(self, address: int, byte_order: str) -> Tuple[Optional[float], str]:
+    def read_float32(self, addr: int, order: str) -> Tuple[Optional[float], str]:
         with self._lock:
             if not self._inst: return None, "not connected"
             try:
-                bo = {"ABCD": 0, "DCBA": 1, "CDAB": 2, "BADC": 3}.get(byte_order, 0)
-                return float(self._inst.read_float(address, functioncode=3, number_of_registers=2, byteorder=bo)), ""
+                bo = {"ABCD": 0, "DCBA": 1, "CDAB": 2, "BADC": 3}.get(order, 0)
+                return float(self._inst.read_float(addr, 3, 2, bo)), ""
             except Exception as e: return None, str(e)
-    def read_uint32(self, address: int, byte_order: str) -> Tuple[Optional[int], str]:
+    def read_uint32(self, addr: int, order: str) -> Tuple[Optional[int], str]:
         with self._lock:
             if not self._inst: return None, "not connected"
             try:
-                bo = {"ABCD": 0, "DCBA": 1, "CDAB": 2, "BADC": 3}.get(byte_order, 0)
-                return int(self._inst.read_long(address, functioncode=3, number_of_registers=2, signed=False, byteorder=bo)), ""
+                bo = {"ABCD": 0, "DCBA": 1, "CDAB": 2, "BADC": 3}.get(order, 0)
+                return int(self._inst.read_long(addr, 3, 2, False, bo)), ""
             except Exception:
                 try:
-                    r = self._inst.read_registers(address, 2, functioncode=3)
-                    return int(decode_bytes(r, byte_order, ">I")), ""
+                    r = self._inst.read_registers(addr, 2, 3)
+                    return int(decode_bytes(r, order, ">I")), ""
                 except Exception as e: return None, str(e)
-    def read_regs(self, address: int, count: int) -> Tuple[Optional[List[int]], str]:
+    def read_regs(self, addr: int, count: int) -> Tuple[Optional[List[int]], str]:
         with self._lock:
             if not self._inst: return None, "not connected"
-            try: return self._inst.read_registers(address, count, 3), ""
+            try: return self._inst.read_registers(addr, count, 3), ""
             except Exception as e: return None, str(e)
     def close(self):
         with self._lock:
@@ -203,8 +203,7 @@ class ModbusPage:
         self.last_poll, self.last_save = 0.0, 0.0
         self.timer = QTimer(); self.timer.setInterval(1000); self.timer.timeout.connect(self.poll)
         self.cb_status, self.cb_ring, self.cb_clr = None, None, None
-        self._auto_connecting, self._auto_attempts = False, 0
-        self.status_label = QLabel("未连接"); self.status_label.setFixedWidth(110); self.status_label.setAlignment(Qt.AlignCenter)
+        self.auto_conn, self.auto_att = False, 0
         self.setup_ui()
         self.refresh_table()
 
@@ -213,8 +212,9 @@ class ModbusPage:
         
         tb = QFrame(); tb.setStyleSheet("background: white; border-radius: 10px;")
         hbox = QHBoxLayout(tb); hbox.setContentsMargins(14, 10, 14, 10)
-        self._set_status_badge("failed")
-        hbox.addWidget(self.status_label); hbox.addStretch(1)
+        self.lbl_st = QLabel("未连接"); self.lbl_st.setFixedWidth(110); self.lbl_st.setAlignment(Qt.AlignCenter)
+        self.set_st_ui(False)
+        hbox.addWidget(self.lbl_st); hbox.addStretch(1)
         
         btn_style = "QPushButton { border: none; border-radius: 8px; padding: 8px 14px; }"
         self.btn_fix = QPushButton("修正环号"); self.btn_fix.setStyleSheet(btn_style + "background: #e6f4ff; color: #1677ff;")
@@ -253,11 +253,7 @@ class ModbusPage:
         self.update_state(None, None, None, None)
 
     def get_page(self): return self.page
-    def warn(self, msg): 
-        def _do():
-            try: QMessageBox.warning(self.page, "提示", msg)
-            except Exception: pass
-        QTimer.singleShot(0, _do)
+    def warn(self, msg): QTimer.singleShot(0, lambda: QMessageBox.warning(self.page, "提示", msg))
     def log(self, msg):
         txt = f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {msg}"
         _append_log(txt); self.log_txt.append(txt)
@@ -273,15 +269,15 @@ class ModbusPage:
     def set_clear_ring_callback(self, cb): self.cb_clr = cb
 
     def emit_st(self, st):
-        self._set_status_badge(st)
+        self.set_st_ui(st == "connected" if st in ("connected", "failed") else None)
         if self.cb_status: self.cb_status(st)
-    def _set_status_badge(self, conn):
-        if conn == "connected":
-            self.status_label.setText("已连接"); self.status_label.setStyleSheet("background: #f6ffed; color: #389e0d; padding: 6px; border-radius: 8px;")
-        elif conn == "failed":
-            self.status_label.setText("未连接"); self.status_label.setStyleSheet("background: #fff2e8; color: #d4380d; padding: 6px; border-radius: 8px;")
+    def set_st_ui(self, conn):
+        if conn is True:
+            self.lbl_st.setText("已连接"); self.lbl_st.setStyleSheet("background: #f6ffed; color: #389e0d; padding: 6px; border-radius: 8px;")
+        elif conn is False:
+            self.lbl_st.setText("未连接"); self.lbl_st.setStyleSheet("background: #fff2e8; color: #d4380d; padding: 6px; border-radius: 8px;")
         else:
-            self.status_label.setText("连接中"); self.status_label.setStyleSheet("background: #f5f5f5; color: #595959; padding: 6px; border-radius: 8px;")
+            self.lbl_st.setText("连接中"); self.lbl_st.setStyleSheet("background: #f5f5f5; color: #595959; padding: 6px; border-radius: 8px;")
 
     def chg_pg(self, d): self.pg = max(1, self.pg + d); self.refresh_table()
     def refresh_table(self):
@@ -308,7 +304,7 @@ class ModbusPage:
         if len(recs) < 2: return self.warn("没有上一环")
         recs.sort(key=lambda x: x.get("ring_no", 0))
         cur, prv = recs[-1], recs[-2]
-        db.upsert_ring_detail(project_id=pid, ring_no=prv["ring_no"], weight=prv.get("weight",0)+cur.get("weight",0), travel=prv.get("travel",0)+cur.get("travel",0), time_str=cur.get("time",""), total_weight=cur.get("total_weight",0), total_travel=cur.get("total_travel",0))
+        db.upsert_ring_detail(pid, prv["ring_no"], prv.get("weight",0)+cur.get("weight",0), prv.get("travel",0)+cur.get("travel",0), cur.get("time",""), cur.get("total_weight",0), cur.get("total_travel",0))
         db.delete_ring_detail(pid, cur["ring_no"])
         self.ring_no = db.max_ring_no(pid) or prv["ring_no"]
         if self.cb_ring: self.cb_ring(self.ring_no)
@@ -319,9 +315,9 @@ class ModbusPage:
         if self.last_tot_wt is None: return self.warn("尚未读取到总重量")
         if self.ring_wt <= 1.0: return self.warn("当前环重量≤1t，不可切换")
         pid = _active_project_id()
-        prev_trv = (db.get_ring_detail(pid, self.ring_no - 1) or {}).get("total_travel", 0) if self.ring_no > 0 else 0
-        db.upsert_ring_detail(project_id=pid, ring_no=self.ring_no, weight=self.ring_wt, travel=self.travel_tot - prev_trv, time_str=datetime.now().strftime("%Y-%m-%d %H:%M:%S"), total_weight=self.last_tot_wt, total_travel=self.travel_tot)
-        db.upsert_ring_detail(project_id=pid, ring_no=self.ring_no + 1, weight=0, travel=0, time_str=datetime.now().strftime("%Y-%m-%d %H:%M:%S"), total_weight=self.last_tot_wt, total_travel=self.travel_tot)
+        prev_trv = db.get_ring_detail(pid, self.ring_no - 1).get("total_travel", 0) if self.ring_no > 0 else 0
+        db.upsert_ring_detail(pid, self.ring_no, self.ring_wt, self.travel_tot - prev_trv, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), self.last_tot_wt, self.travel_tot)
+        db.upsert_ring_detail(pid, self.ring_no + 1, 0, 0, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), self.last_tot_wt, self.travel_tot)
         self.ring_no = db.max_ring_no(pid) or self.ring_no + 1
         if self.cb_ring: self.cb_ring(self.ring_no)
         self.log(f"下一环: 新建环号={self.ring_no}"); self.refresh_table()
@@ -350,17 +346,17 @@ class ModbusPage:
         if self.cb_clr: self.cb_clr()
         self.warn("修正成功"); self.refresh_table()
 
-    def start_auto_connect(self, max_attempts=3, interval_ms=500):
-        if self._auto_connecting: return
-        self._auto_connecting, self._auto_attempts, self.auto_intv = True, 0, max(100, interval_ms)
+    def start_auto_connect(self, max_att=3, intv=500):
+        if self.auto_conn: return
+        self.auto_conn, self.auto_att, self.auto_intv = True, 0, max(100, intv)
         self.emit_st("connecting")
-        QTimer.singleShot(0, lambda: self._auto_conn_step(max_attempts))
+        QTimer.singleShot(0, lambda: self._auto_conn_step(max_att))
     def _auto_conn_step(self, max_att):
-        if not self._auto_connecting: return
+        if not self.auto_conn: return
         if self.cli and self.cli.is_connected() or self.connect():
-            self.emit_st("connected"); self._auto_connecting = False; return
-        self._auto_attempts += 1
-        if self._auto_attempts >= max_att: self.emit_st("failed"); self._auto_connecting = False; return
+            self.emit_st("connected"); self.auto_conn = False; return
+        self.auto_att += 1
+        if self.auto_att >= max_att: self.emit_st("failed"); self.auto_conn = False; return
         self.emit_st("connecting"); QTimer.singleShot(self.auto_intv, lambda: self._auto_conn_step(max_att))
 
     def connect(self):
@@ -407,7 +403,7 @@ class ModbusPage:
         
         if None in (f, ld, sp, tot):
             self.log("读取失败"); self.disconnect()
-            if not self._auto_connecting: self.start_auto_connect(5, 2000)
+            if not self.auto_conn: self.start_auto_connect(5, 2000)
             return
 
         now = time.monotonic()
@@ -420,7 +416,7 @@ class ModbusPage:
         f *= self.s.get("scale", 1.0); tot *= self.s.get("scale", 1.0)
         self.last_tot_wt = tot
         
-        if db.get_ring_detail(pid, 0) is None: db.upsert_ring_detail(project_id=pid, ring_no=0, weight=0, travel=0, time_str=datetime.now().strftime("%Y-%m-%d %H:%M:%S"), total_weight=0, total_travel=0)
+        if db.get_ring_detail(pid, 0) is None: db.upsert_ring_detail(pid, 0, 0, 0, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), 0, 0)
         self.ring_no = db.max_ring_no(pid) or 0
         
         prv_sum = float(db.sum_ring_weight_before(pid, self.ring_no) if self.ring_no > 0 else db.meta_get(f"ring0_baseline_total_weight::{pid}") or tot)
@@ -433,4 +429,4 @@ class ModbusPage:
         
         if now - self.last_save >= self.s.get("sample_save_interval_s", 5):
             self.last_save = now
-            db.upsert_ring_detail(project_id=pid, ring_no=self.ring_no, weight=self.ring_wt, travel=self.travel_tot - ((db.get_ring_detail(pid, self.ring_no - 1) or {}).get("total_travel", 0) if self.ring_no > 0 else 0), time_str=datetime.now().strftime("%Y-%m-%d %H:%M:%S"), total_weight=tot, total_travel=self.travel_tot)
+            db.upsert_ring_detail(pid, self.ring_no, self.ring_wt, self.travel_tot - (db.get_ring_detail(pid, self.ring_no - 1).get("total_travel", 0) if self.ring_no > 0 else 0), datetime.now().strftime("%Y-%m-%d %H:%M:%S"), tot, self.travel_tot)

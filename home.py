@@ -14,6 +14,7 @@ from PyQt5.QtCore import QUrl, QTimer, QObject, pyqtSlot
 from PyQt5.QtWebChannel import QWebChannel
 
 import modbus
+import json
 
 from pyecharts.charts import Bar, Line
 from pyecharts import options as opts
@@ -135,7 +136,14 @@ class HomePage:
         new_interval = self._load_refresh_interval()
         if new_interval != self.refresh_interval_ms:
             self.set_refresh_interval(new_interval)
-        state = app_storage.load_json("modbus_state.json", {})
+        # 从数据库读取modbus状态
+        state_str = db.meta_get("modbus_state::data")
+        state = {}
+        if state_str:
+            try:
+                state = json.loads(state_str)
+            except Exception:
+                pass
         if not isinstance(state, dict):
             state = {}
 
